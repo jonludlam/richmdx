@@ -1,0 +1,19 @@
+(documentation
+ (package odoc)
+ (mld_files contributing driver dune features index interface
+   ocamldoc_differences odoc_for_authors parent_child_spec))
+
+(rule
+ (alias docgen)
+ (deps
+  (:x driver.md)
+  (glob_files *.ml*)
+  (glob_files *.png)
+  (glob_files library_mlds/*.mld)
+  (package odoc))
+ (enabled_if
+  (> %{ocaml_version} 4.11))
+ (action
+  (progn
+   (run ocaml-mdx-test %{x})
+   (diff? %{x} %{x}.corrected))))

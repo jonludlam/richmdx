@@ -1,0 +1,34 @@
+(executable
+ (name compile)
+ (modules compile)
+ (libraries fpath))
+
+(env
+ (_
+  (binaries
+   (../odoc_print/odoc_print.exe as odoc_print)
+   (./compile.exe as compile))))
+
+(cram
+ (deps %{bin:odoc} %{bin:odoc_print} %{bin:compile}))
+
+; 4.06.0 and above
+
+(cram
+ (applies_to deep_substitution)
+ (enabled_if
+  (>= %{ocaml_version} 4.06.0)))
+
+; 4.08.0 and above
+
+(cram
+ (applies_to github_issue_587 shadow)
+ (enabled_if
+  (>= %{ocaml_version} 4.08.0)))
+
+; 4.13.0 and above
+
+(cram
+ (applies_to github_issue_793)
+ (enabled_if
+  (>= %{ocaml_version} 4.13.0)))

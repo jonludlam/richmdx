@@ -1,0 +1,9 @@
+(executable
+ (name main)
+ (package odoc)
+ (public_name odoc)
+ (libraries compatcmdliner odoc_model odoc_odoc)
+ (flags
+  (:standard -open StdLabels))
+ (instrumentation
+  (backend bisect_ppx)))

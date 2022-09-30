@@ -1,0 +1,7 @@
+(documentation
+ (package richmdx))
+
+(mdx
+  (files *.md *.mld)
+  (libraries mime_printer imagelib base64 findlib vg gg vg.svg))
+

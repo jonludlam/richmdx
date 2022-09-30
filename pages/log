@@ -1,0 +1,163 @@
+execve("../_build/default/duniverse/mdx/bin/test/main.exe", ["../_build/default/duniverse/mdx/"..., "ex1.mld"], 0xfffff5909818 /* 28 vars */) = 0
+brk(NULL)                               = 0xaaaaf0572000
+faccessat(AT_FDCWD, "/etc/ld.so.preload", R_OK) = -1 ENOENT (No such file or directory)
+openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
+fstat(3, {st_mode=S_IFREG|0644, st_size=17764, ...}) = 0
+mmap(NULL, 17764, PROT_READ, MAP_PRIVATE, 3, 0) = 0xffff9777d000
+close(3)                                = 0
+openat(AT_FDCWD, "/lib/aarch64-linux-gnu/libpthread.so.0", O_RDONLY|O_CLOEXEC) = 3
+read(3, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0\267\0\1\0\0\0 a\0\0\0\0\0\0"..., 832) = 832
+fstat(3, {st_mode=S_IFREG|0755, st_size=160200, ...}) = 0
+mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0xffff9777b000
+mmap(NULL, 197632, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0xffff97723000
+mprotect(0xffff9773f000, 61440, PROT_NONE) = 0
+mmap(0xffff9774e000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x1b000) = 0xffff9774e000
+mmap(0xffff97750000, 13312, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0xffff97750000
+close(3)                                = 0
+openat(AT_FDCWD, "/lib/aarch64-linux-gnu/libm.so.6", O_RDONLY|O_CLOEXEC) = 3
+read(3, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0\267\0\1\0\0\0000\273\0\0\0\0\0\0"..., 832) = 832
+fstat(3, {st_mode=S_IFREG|0644, st_size=633000, ...}) = 0
+mmap(NULL, 696448, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0xffff97678000
+mprotect(0xffff97711000, 65536, PROT_NONE) = 0
+mmap(0xffff97721000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x99000) = 0xffff97721000
+close(3)                                = 0
+openat(AT_FDCWD, "/lib/aarch64-linux-gnu/libdl.so.2", O_RDONLY|O_CLOEXEC) = 3
+read(3, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0\267\0\1\0\0\0P\17\0\0\0\0\0\0"..., 832) = 832
+fstat(3, {st_mode=S_IFREG|0644, st_size=14560, ...}) = 0
+mmap(NULL, 78080, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0xffff97664000
+mprotect(0xffff97667000, 61440, PROT_NONE) = 0
+mmap(0xffff97676000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x2000) = 0xffff97676000
+close(3)                                = 0
+openat(AT_FDCWD, "/lib/aarch64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 3
+read(3, "\177ELF\2\1\1\3\0\0\0\0\0\0\0\0\3\0\267\0\1\0\0\0`\17\2\0\0\0\0\0"..., 832) = 832
+fstat(3, {st_mode=S_IFREG|0755, st_size=1455120, ...}) = 0
+mmap(NULL, 1527752, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0xffff974ef000
+mprotect(0xffff9764c000, 61440, PROT_NONE) = 0
+mmap(0xffff9765b000, 24576, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x15c000) = 0xffff9765b000
+mmap(0xffff97661000, 12232, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0xffff97661000
+close(3)                                = 0
+mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0xffff97779000
+mprotect(0xffff9765b000, 16384, PROT_READ) = 0
+mprotect(0xffff97676000, 4096, PROT_READ) = 0
+mprotect(0xffff97721000, 4096, PROT_READ) = 0
+mprotect(0xffff9774e000, 4096, PROT_READ) = 0
+mprotect(0xaaaab3cf9000, 4096, PROT_READ) = 0
+mprotect(0xffff97785000, 4096, PROT_READ) = 0
+munmap(0xffff9777d000, 17764)           = 0
+set_tid_address(0xffff97779500)         = 8155
+set_robust_list(0xffff97779510, 24)     = 0
+rt_sigaction(SIGRTMIN, {sa_handler=0xffff97728b94, sa_mask=[], sa_flags=SA_SIGINFO}, NULL, 8) = 0
+rt_sigaction(SIGRT_1, {sa_handler=0xffff97728c50, sa_mask=[], sa_flags=SA_RESTART|SA_SIGINFO}, NULL, 8) = 0
+rt_sigprocmask(SIG_UNBLOCK, [RTMIN RT_1], NULL, 8) = 0
+prlimit64(0, RLIMIT_STACK, NULL, {rlim_cur=8192*1024, rlim_max=RLIM64_INFINITY}) = 0
+brk(NULL)                               = 0xaaaaf0572000
+brk(0xaaaaf0593000)                     = 0xaaaaf0593000
+mmap(NULL, 268439552, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0xffff874ee000
+munmap(0xffff874ee000, 0)               = -1 EINVAL (Invalid argument)
+munmap(0xffff974ee000, 4096)            = 0
+sigaltstack({ss_sp=0xaaaaf0572a00, ss_flags=0, ss_size=16384}, NULL) = 0
+rt_sigaction(SIGPROF, NULL, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=0}, 8) = 0
+mmap(0xffff874ee000, 0, PROT_NONE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = -1 EINVAL (Invalid argument)
+mmap(0xffff874ee000, 2097152, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0xffff874ee000
+mmap(NULL, 557056, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0xffff87466000
+munmap(0xffff87466000, 8192)            = 0
+munmap(0xffff874e8000, 24576)           = 0
+readlinkat(AT_FDCWD, "/proc/self/exe", "/workspaces/richmdx/_build/defau"..., 256) = 66
+newfstatat(AT_FDCWD, "/workspaces/richmdx/_build/default/duniverse/mdx/bin/test/main.exe", {st_mode=S_IFREG|0555, st_size=6262376, ...}, 0) = 0
+mmap(NULL, 270336, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0xffff87426000
+brk(0xaaaaf05c8000)                     = 0xaaaaf05c8000
+mmap(NULL, 557056, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0xffff8739e000
+munmap(0xffff8739e000, 8192)            = 0
+munmap(0xffff87420000, 24576)           = 0
+brk(0xaaaaf05ec000)                     = 0xaaaaf05ec000
+mmap(NULL, 557056, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0xffff87318000
+munmap(0xffff87318000, 0)               = -1 EINVAL (Invalid argument)
+munmap(0xffff87398000, 32768)           = 0
+munmap(0xffff87426000, 270336)          = 0
+brk(0xaaaaf062f000)                     = 0xaaaaf062f000
+lseek(0, 0, SEEK_CUR)                   = -1 ESPIPE (Illegal seek)
+mmap(NULL, 794624, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0xffff87256000
+lseek(1, 0, SEEK_CUR)                   = 5750
+brk(0xaaaaf065f000)                     = 0xaaaaf065f000
+lseek(2, 0, SEEK_CUR)                   = 5854
+sched_getaffinity(8155, 128, [0, 1, 2, 3]) = 8
+mmap(NULL, 557056, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0xffff871ce000
+munmap(0xffff871ce000, 8192)            = 0
+munmap(0xffff87250000, 24576)           = 0
+openat(AT_FDCWD, "/usr/lib/ocaml/ld.conf", O_RDONLY|O_CLOEXEC) = 3
+lseek(3, 0, SEEK_CUR)                   = 0
+read(3, "/usr/lib/ocaml/stublibs\n/usr/lib"..., 65536) = 39
+read(3, "", 65536)                      = 0
+close(3)                                = 0
+openat(AT_FDCWD, ".", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3
+fstat(3, {st_mode=S_IFDIR|0755, st_size=160, ...}) = 0
+brk(0xaaaaf0682000)                     = 0xaaaaf0682000
+getdents64(3, 0xaaaaf0659030 /* 5 entries */, 32768) = 128
+getdents64(3, 0xaaaaf0659030 /* 0 entries */, 32768) = 0
+close(3)                                = 0
+openat(AT_FDCWD, "/usr/lib/ocaml", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3
+fstat(3, {st_mode=S_IFDIR|0755, st_size=20480, ...}) = 0
+getdents64(3, 0xaaaaf0659030 /* 436 entries */, 32768) = 16824
+getdents64(3, 0xaaaaf0659030 /* 0 entries */, 32768) = 0
+close(3)                                = 0
+rt_sigaction(SIGVTALRM, {sa_handler=0xaaaab3cc82c0, sa_mask=[], sa_flags=0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=0}, 8) = 0
+newfstatat(AT_FDCWD, "stdlib.cmi", 0xffffe6aa7fc0, 0) = -1 ENOENT (No such file or directory)
+newfstatat(AT_FDCWD, "Stdlib.cmi", 0xffffe6aa7fc0, 0) = -1 ENOENT (No such file or directory)
+newfstatat(AT_FDCWD, "/usr/lib/ocaml/stdlib.cmi", {st_mode=S_IFREG|0644, st_size=36548, ...}, 0) = 0
+openat(AT_FDCWD, "/usr/lib/ocaml/stdlib.cmi", O_RDONLY|O_CLOEXEC) = 3
+lseek(3, 0, SEEK_CUR)                   = 0
+read(3, "Caml1999I032\204\225\246\276\0\0\212\3\0\0\31\36\0\0_\177\0\0\\\375"..., 65536) = 36548
+close(3)                                = 0
+mmap(NULL, 557056, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0xffff87148000
+munmap(0xffff87148000, 0)               = -1 EINVAL (Invalid argument)
+munmap(0xffff871c8000, 32768)           = 0
+mmap(NULL, 557056, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0xffff870c0000
+munmap(0xffff870c0000, 0)               = -1 EINVAL (Invalid argument)
+munmap(0xffff87140000, 32768)           = 0
+brk(0xaaaaf06af000)                     = 0xaaaaf06af000
+ioctl(1, TCGETS, 0xffffe6aa7fa0)        = -1 ENOSYS (Function not implemented)
+ioctl(2, TCGETS, 0xffffe6aa7fa0)        = -1 ENOSYS (Function not implemented)
+newfstatat(AT_FDCWD, "ex1.mld", {st_mode=S_IFREG|0644, st_size=59068, ...}, 0) = 0
+newfstatat(AT_FDCWD, "ex1.mld", {st_mode=S_IFREG|0644, st_size=59068, ...}, 0) = 0
+openat(AT_FDCWD, ".", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3
+fstat(3, {st_mode=S_IFDIR|0755, st_size=160, ...}) = 0
+getdents64(3, 0xaaaaf0576f80 /* 5 entries */, 32768) = 128
+getdents64(3, 0xaaaaf0576f80 /* 0 entries */, 32768) = 0
+close(3)                                = 0
+openat(AT_FDCWD, ".", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3
+fstat(3, {st_mode=S_IFDIR|0755, st_size=160, ...}) = 0
+getdents64(3, 0xaaaaf0576f80 /* 5 entries */, 32768) = 128
+getdents64(3, 0xaaaaf0576f80 /* 0 entries */, 32768) = 0
+close(3)                                = 0
+openat(AT_FDCWD, "/usr/lib/ocaml", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3
+fstat(3, {st_mode=S_IFDIR|0755, st_size=20480, ...}) = 0
+getdents64(3, 0xaaaaf0576f80 /* 436 entries */, 32768) = 16824
+getdents64(3, 0xaaaaf0576f80 /* 0 entries */, 32768) = 0
+close(3)                                = 0
+openat(AT_FDCWD, "/usr/lib/ocaml/camlp4", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = -1 ENOENT (No such file or directory)
+openat(AT_FDCWD, ".", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3
+fstat(3, {st_mode=S_IFDIR|0755, st_size=160, ...}) = 0
+getdents64(3, 0xaaaaf0576f80 /* 5 entries */, 32768) = 128
+getdents64(3, 0xaaaaf0576f80 /* 0 entries */, 32768) = 0
+close(3)                                = 0
+openat(AT_FDCWD, "/usr/lib/ocaml", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3
+fstat(3, {st_mode=S_IFDIR|0755, st_size=20480, ...}) = 0
+getdents64(3, 0xaaaaf0576f80 /* 436 entries */, 32768) = 16824
+getdents64(3, 0xaaaaf0576f80 /* 0 entries */, 32768) = 0
+close(3)                                = 0
+newfstatat(AT_FDCWD, "stdlib.cmi", 0xffffe6aa7fc0, 0) = -1 ENOENT (No such file or directory)
+newfstatat(AT_FDCWD, "Stdlib.cmi", 0xffffe6aa7fc0, 0) = -1 ENOENT (No such file or directory)
+newfstatat(AT_FDCWD, "/usr/lib/ocaml/stdlib.cmi", {st_mode=S_IFREG|0644, st_size=36548, ...}, 0) = 0
+openat(AT_FDCWD, "/usr/lib/ocaml/stdlib.cmi", O_RDONLY|O_CLOEXEC) = 3
+lseek(3, 0, SEEK_CUR)                   = 0
+read(3, "Caml1999I032\204\225\246\276\0\0\212\3\0\0\31\36\0\0_\177\0\0\\\375"..., 65536) = 36548
+close(3)                                = 0
+openat(AT_FDCWD, "/usr/lib/mime_printer", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = -1 ENOENT (No such file or directory)
+newfstatat(AT_FDCWD, "", 0xffffe6aa7fc0, 0) = -1 ENOENT (No such file or directory)
+newfstatat(AT_FDCWD, ".d", 0xffffe6aa7fc0, 0) = -1 ENOENT (No such file or directory)
+write(2, "ocaml-mdx-test: internal error, "..., 129ocaml-mdx-test: internal error, uncaught exception:
+                Fl_package_base.No_such_package("unix", "")
+                
+) = 129
+exit_group(125)                         = ?
++++ exited with 125 +++

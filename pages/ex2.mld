@@ -1,0 +1,23 @@
+{0 Example 2}
+
+{@ocaml[
+open Gg
+open Vg
+
+let aspect = 1.618
+let size = Size2.v (aspect *. 100.) 100. (* mm *)
+let view = Box2.v P2.o (Size2.v aspect 1.0)
+let image = I.const (Color.v_srgb 0.314 0.784 0.471)
+
+let () =
+    let buffer = Buffer.create 256 in
+    let title = "Vgr_svg minimal example" in
+    let description = "Emerald Color" in
+    let xmp = Vgr.xmp ~title ~description () in
+    let warn w = Vgr.pp_warning Format.err_formatter w in
+    let r = Vgr.create ~warn (Vgr_svg.target ~xml_decl:false ~xmp ()) (`Buffer buffer) in
+    ignore (Vgr.render r (`Image (size, view, image)));
+    ignore (Vgr.render r `End);
+    Mime_printer.push "image/svg" (Buffer.contents buffer)
+]@
+{%html: <svg xmlns="http://www.w3.org/2000/svg" xmlns:l="http://www.w3.org/1999/xlink" version="1.1" width="161.8mm" height="100mm" viewBox="0 0 161.8 100" color-profile="auto" color-interpolation="linearRGB" color-interpolation-filters="linearRGB"><?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:d="http://purl.org/dc/elements/1.1/" xmlns:x="http://ns.adobe.com/xap/1.0/"><r:Description r:about=""><d:title><r:Alt><r:li xml:lang="x-default">Vgr_svg minimal example</r:li></r:Alt></d:title><d:description><r:Alt><r:li xml:lang="x-default">Emerald Color</r:li></r:Alt></d:description></r:Description></r:RDF></x:xmpmeta><?xpacket end="w"?><g fill="none" stroke-miterlimit="9.98123" transform="matrix(100 0 0 -100 -0 100)"><defs><path id="i1" d="M0 0L1.618 0L1.618 1L0 1Z"/></defs><use l:href="#i1" fill="#50C878"/></g></svg> %}}
