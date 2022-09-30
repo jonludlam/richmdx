@@ -1,0 +1,12 @@
+(library
+(public_name vg)
+(wrapped false)
+(modules vg)
+(libraries gg))
+
+(library
+ (public_name vg.svg)
+ (name vg_svg)
+ (modules vgr_svg)
+ (wrapped false)
+ (libraries vg gg))
