@@ -1,7 +1,8 @@
 (library
  (name base64)
  (modules unsafe base64)
- (public_name base64))
+ (public_name base64)
+ (libraries bytes))
 
 (rule
  (copy %{read:../config/which-unsafe-file} unsafe.ml))
