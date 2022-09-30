@@ -675,7 +675,7 @@ let init ~verbose:v ~silent:s ~verbose_findlib ~directives ~packages ~predicates
   let stub = String.sub stdlib_path 0 (String.length stdlib_path - String.length "ocaml") in
   let mime_printer = stub ^ "mime_printer" in
   Topdirs.dir_directory mime_printer;
-  Topfind.don't_load_deeply packages;
+(*  Topfind.don't_load_deeply packages;*)
   Topfind.add_predicates predicates;
   (* [require] directive is overloaded to toggle the [errors] reference when
      an exception is raised. *)
