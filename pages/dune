@@ -3,5 +3,5 @@
 
 (mdx
   (files *.md *.mld)
-  (libraries mime_printer imagelib base64 findlib vg gg vg.svg))
+  (libraries mime_printer imagelib base64 findlib vg gg vg.svg re))
 

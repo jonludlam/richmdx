@@ -3,8 +3,8 @@
 This is an example of a rich mdx document.
 
 {@ocaml[
-# print_endline "Hello, Skylark";;
-Hello, Skylark
+# print_endline "Hello, World";;
+Hello, World
 - : unit = ()
 ]}
 

@@ -17,4 +17,5 @@ let to_odoc x =
   | ["image"; "svg"], Noencoding -> Printf.sprintf "{%%html: %s %%}" x.data
   | "image"::_, Base64 -> Printf.sprintf "{%%html: <img src=\"data:%s;base64,%s\" /> %%}" x.mime_type x.data
   | "text"::"odoc"::[], Noencoding -> x.data
+  | "text"::"html"::[], Noencoding -> Printf.sprintf "{%%html: %s %%}" x.data
   | _ -> ""

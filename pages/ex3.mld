@@ -1,57 +1,448 @@
 {0 Example 3}
 
-{@ocaml[
-let svg_orig = {|
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:l="http://www.w3.org/1999/xlink" version="1.1" width="161.8mm" height="100mm" viewBox="0 0 161.8 100" color-profile="auto" color-interpolation="linearRGB" color-interpolation-filters="linearRGB">
- <?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
- <x:xmpmeta xmlns:x="adobe:ns:meta/">
- <r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:d="http://purl.org/dc/elements/1.1/" xmlns:x="http://ns.adobe.com/xap/1.0/">
-  <r:Description r:about="">
-   <d:title>
-    <r:Alt>
-     <r:li xml:lang="x-default">Vgr_svg minimal example</r:li>
-    </r:Alt>
-   </d:title>
-   <d:description>
-    <r:Alt>
-     <r:li xml:lang="x-default">Emerald Color</r:li>
-    </r:Alt>
-   </d:description>
-  </r:Description>
- </r:RDF>
- </x:xmpmeta>
- <?xpacket end="w"?>
- <g fill="none" stroke-miterlimit="9.98123" transform="matrix(100 0 0 -100 -0 100)">
- <defs>
- <path id="i1" d="M0 0L1.618 0L1.618 1L0 1Z"/>
- </defs>
- <use l:href="#i1" fill="#50C878"/>
- </g>
- </svg>
-|}
-let svg = {|
-<svg version="1.1" width="161.8mm" height="100mm" viewBox="0 0 161.8 100" color-profile="auto" color-interpolation="linearRGB" color-interpolation-filters="linearRGB">
- <g fill="none" stroke-miterlimit="9.98123" transform="matrix(100 0 0 -100 -0 100)">
- <defs>
- <path id="i1" d="M0 0L1.618 0L1.618 1L0 1Z"/>
- </defs>
- <use l:href="#i1" fill="#50C878"/>
- </g>
- </svg>
-|}
-]}
+{1 Here's some html}
+
+Here I've just cut+n+pasted an HTML table with some styling. Don't do this, generate the
+HTML from some nice OCaml code!
 
 {@ocaml[
-let () =
-  Mime_printer.push "image/svg" svg
+let table = {|
+<table>
+<thead>
+<tr class="table100-head">
+<th class="column1">Date</th>
+<th class="column2">Order ID</th>
+<th class="column3">Name</th>
+<th class="column4">Price</th>
+<th class="column5">Quantity</th>
+<th class="column6">Total</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="column1">2017-09-29 01:22</td>
+<td class="column2">200398</td>
+<td class="column3">iPhone X 64Gb Grey</td>
+<td class="column4">$999.00</td>
+<td class="column5">1</td>
+<td class="column6">$999.00</td>
+</tr>
+<tr>
+<td class="column1">2017-09-28 05:57</td>
+<td class="column2">200397</td>
+<td class="column3">Samsung S8 Black</td>
+<td class="column4">$756.00</td>
+<td class="column5">1</td>
+<td class="column6">$756.00</td>
+</tr>
+<tr>
+<td class="column1">2017-09-26 05:57</td>
+<td class="column2">200396</td>
+<td class="column3">Game Console Controller</td>
+<td class="column4">$22.00</td>
+<td class="column5">2</td>
+<td class="column6">$44.00</td>
+</tr>
+<tr>
+<td class="column1">2017-09-25 23:06</td>
+<td class="column2">200392</td>
+<td class="column3">USB 3.0 Cable</td>
+<td class="column4">$10.00</td>
+<td class="column5">3</td>
+<td class="column6">$30.00</td>
+</tr>
+<tr>
+<td class="column1">2017-09-24 05:57</td>
+<td class="column2">200391</td>
+<td class="column3">Smartwatch 4.0 LTE Wifi</td>
+<td class="column4">$199.00</td>
+<td class="column5">6</td>
+<td class="column6">$1494.00</td>
+</tr>
+<tr>
+<td class="column1">2017-09-23 05:57</td>
+<td class="column2">200390</td>
+<td class="column3">Camera C430W 4k</td>
+<td class="column4">$699.00</td>
+<td class="column5">1</td>
+<td class="column6">$699.00</td>
+</tr>
+<tr>
+<td class="column1">2017-09-22 05:57</td>
+<td class="column2">200389</td>
+<td class="column3">Macbook Pro Retina 2017</td>
+<td class="column4">$2199.00</td>
+<td class="column5">1</td>
+<td class="column6">$2199.00</td>
+</tr>
+<tr>
+<td class="column1">2017-09-21 05:57</td>
+<td class="column2">200388</td>
+<td class="column3">Game Console Controller</td>
+<td class="column4">$999.00</td>
+<td class="column5">1</td>
+<td class="column6">$999.00</td>
+</tr>
+<tr>
+<td class="column1">2017-09-19 05:57</td>
+<td class="column2">200387</td>
+<td class="column3">iPhone X 64Gb Grey</td>
+<td class="column4">$999.00</td>
+<td class="column5">1</td>
+<td class="column6">$999.00</td>
+</tr>
+<tr>
+<td class="column1">2017-09-18 05:57</td>
+<td class="column2">200386</td>
+<td class="column3">iPhone X 64Gb Grey</td>
+<td class="column4">$999.00</td>
+<td class="column5">1</td>
+<td class="column6">$999.00</td>
+</tr>
+<tr>
+<td class="column1">2017-09-22 05:57</td>
+<td class="column2">200389</td>
+<td class="column3">Macbook Pro Retina 2017</td>
+<td class="column4">$2199.00</td>
+<td class="column5">1</td>
+<td class="column6">$2199.00</td>
+</tr>
+<tr>
+<td class="column1">2017-09-21 05:57</td>
+<td class="column2">200388</td>
+<td class="column3">Game Console Controller</td>
+<td class="column4">$999.00</td>
+<td class="column5">1</td>
+<td class="column6">$999.00</td>
+</tr>
+<tr>
+<td class="column1">2017-09-19 05:57</td>
+<td class="column2">200387</td>
+<td class="column3">iPhone X 64Gb Grey</td>
+<td class="column4">$999.00</td>
+<td class="column5">1</td>
+<td class="column6">$999.00</td>
+</tr>
+<tr>
+<td class="column1">2017-09-18 05:57</td>
+<td class="column2">200386</td>
+<td class="column3">iPhone X 64Gb Grey</td>
+<td class="column4">$999.00</td>
+<td class="column5">1</td>
+<td class="column6">$999.00</td>
+</tr>
+</tbody>
+</table>
+|}
+let style = {|
+table {
+ border-spacing:1;
+ border-collapse:collapse;
+ background:#fff;
+ border-radius:10px;
+ overflow:hidden;
+ width:100%;
+ margin:0 auto;
+ position:relative
+}
+table * {
+ position:relative
+}
+table td,
+table th {
+ padding-left:8px
+}
+table thead tr {
+ height:60px;
+ background:#36304a
+}
+table tbody tr {
+ height:50px
+}
+table tbody tr:last-child {
+ border:0
+}
+table td,
+table th {
+ text-align:left
+}
+table td.l,
+table th.l {
+ text-align:right
+}
+table td.c,
+table th.c {
+ text-align:center
+}
+table td.r,
+table th.r {
+ text-align:center
+}
+.table100-head th {
+ font-family:OpenSans-Regular;
+ font-size:18px;
+ color:#fff;
+ line-height:1.2;
+ font-weight:unset
+}
+tbody tr:nth-child(even) {
+ background-color:#f5f5f5
+}
+tbody tr {
+ font-family:OpenSans-Regular;
+ font-size:15px;
+ color:gray;
+ line-height:1.2;
+ font-weight:unset
+}
+tbody tr:hover {
+ color:#555;
+ background-color:#f5f5f5;
+ cursor:pointer
+}
+.column1 {
+ width:260px;
+ padding-left:40px
+}
+.column2 {
+ width:160px
+}
+.column3 {
+ width:245px
+}
+.column4 {
+ width:110px;
+ text-align:right
+}
+.column5 {
+ width:170px;
+ text-align:right
+}
+.column6 {
+ width:222px;
+ text-align:right;
+ padding-right:62px
+}
+|}
+
+let html = Printf.sprintf "<style>%s</style>%s" style table
+let () = Mime_printer.push "text/html" html
 ]@
-{%html: 
-  <svg version="1.1" width="161.8mm" height="100mm" viewBox="0 0 161.8 100" color-profile="auto" color-interpolation="linearRGB" color-interpolation-filters="linearRGB">
-   <g fill="none" stroke-miterlimit="9.98123" transform="matrix(100 0 0 -100 -0 100)">
-   <defs>
-   <path id="i1" d="M0 0L1.618 0L1.618 1L0 1Z"/>
-   </defs>
-   <use l:href="#i1" fill="#50C878"/>
-   </g>
-   </svg>
+{%html: <style>
+  table {
+   border-spacing:1;
+   border-collapse:collapse;
+   background:#fff;
+   border-radius:10px;
+   overflow:hidden;
+   width:100%;
+   margin:0 auto;
+   position:relative
+  }
+  table * {
+   position:relative
+  }
+  table td,
+  table th {
+   padding-left:8px
+  }
+  table thead tr {
+   height:60px;
+   background:#36304a
+  }
+  table tbody tr {
+   height:50px
+  }
+  table tbody tr:last-child {
+   border:0
+  }
+  table td,
+  table th {
+   text-align:left
+  }
+  table td.l,
+  table th.l {
+   text-align:right
+  }
+  table td.c,
+  table th.c {
+   text-align:center
+  }
+  table td.r,
+  table th.r {
+   text-align:center
+  }
+  .table100-head th {
+   font-family:OpenSans-Regular;
+   font-size:18px;
+   color:#fff;
+   line-height:1.2;
+   font-weight:unset
+  }
+  tbody tr:nth-child(even) {
+   background-color:#f5f5f5
+  }
+  tbody tr {
+   font-family:OpenSans-Regular;
+   font-size:15px;
+   color:gray;
+   line-height:1.2;
+   font-weight:unset
+  }
+  tbody tr:hover {
+   color:#555;
+   background-color:#f5f5f5;
+   cursor:pointer
+  }
+  .column1 {
+   width:260px;
+   padding-left:40px
+  }
+  .column2 {
+   width:160px
+  }
+  .column3 {
+   width:245px
+  }
+  .column4 {
+   width:110px;
+   text-align:right
+  }
+  .column5 {
+   width:170px;
+   text-align:right
+  }
+  .column6 {
+   width:222px;
+   text-align:right;
+   padding-right:62px
+  }
+  </style>
+  <table>
+  <thead>
+  <tr class="table100-head">
+  <th class="column1">Date</th>
+  <th class="column2">Order ID</th>
+  <th class="column3">Name</th>
+  <th class="column4">Price</th>
+  <th class="column5">Quantity</th>
+  <th class="column6">Total</th>
+  </tr>
+  </thead>
+  <tbody>
+  <tr>
+  <td class="column1">2017-09-29 01:22</td>
+  <td class="column2">200398</td>
+  <td class="column3">iPhone X 64Gb Grey</td>
+  <td class="column4">$999.00</td>
+  <td class="column5">1</td>
+  <td class="column6">$999.00</td>
+  </tr>
+  <tr>
+  <td class="column1">2017-09-28 05:57</td>
+  <td class="column2">200397</td>
+  <td class="column3">Samsung S8 Black</td>
+  <td class="column4">$756.00</td>
+  <td class="column5">1</td>
+  <td class="column6">$756.00</td>
+  </tr>
+  <tr>
+  <td class="column1">2017-09-26 05:57</td>
+  <td class="column2">200396</td>
+  <td class="column3">Game Console Controller</td>
+  <td class="column4">$22.00</td>
+  <td class="column5">2</td>
+  <td class="column6">$44.00</td>
+  </tr>
+  <tr>
+  <td class="column1">2017-09-25 23:06</td>
+  <td class="column2">200392</td>
+  <td class="column3">USB 3.0 Cable</td>
+  <td class="column4">$10.00</td>
+  <td class="column5">3</td>
+  <td class="column6">$30.00</td>
+  </tr>
+  <tr>
+  <td class="column1">2017-09-24 05:57</td>
+  <td class="column2">200391</td>
+  <td class="column3">Smartwatch 4.0 LTE Wifi</td>
+  <td class="column4">$199.00</td>
+  <td class="column5">6</td>
+  <td class="column6">$1494.00</td>
+  </tr>
+  <tr>
+  <td class="column1">2017-09-23 05:57</td>
+  <td class="column2">200390</td>
+  <td class="column3">Camera C430W 4k</td>
+  <td class="column4">$699.00</td>
+  <td class="column5">1</td>
+  <td class="column6">$699.00</td>
+  </tr>
+  <tr>
+  <td class="column1">2017-09-22 05:57</td>
+  <td class="column2">200389</td>
+  <td class="column3">Macbook Pro Retina 2017</td>
+  <td class="column4">$2199.00</td>
+  <td class="column5">1</td>
+  <td class="column6">$2199.00</td>
+  </tr>
+  <tr>
+  <td class="column1">2017-09-21 05:57</td>
+  <td class="column2">200388</td>
+  <td class="column3">Game Console Controller</td>
+  <td class="column4">$999.00</td>
+  <td class="column5">1</td>
+  <td class="column6">$999.00</td>
+  </tr>
+  <tr>
+  <td class="column1">2017-09-19 05:57</td>
+  <td class="column2">200387</td>
+  <td class="column3">iPhone X 64Gb Grey</td>
+  <td class="column4">$999.00</td>
+  <td class="column5">1</td>
+  <td class="column6">$999.00</td>
+  </tr>
+  <tr>
+  <td class="column1">2017-09-18 05:57</td>
+  <td class="column2">200386</td>
+  <td class="column3">iPhone X 64Gb Grey</td>
+  <td class="column4">$999.00</td>
+  <td class="column5">1</td>
+  <td class="column6">$999.00</td>
+  </tr>
+  <tr>
+  <td class="column1">2017-09-22 05:57</td>
+  <td class="column2">200389</td>
+  <td class="column3">Macbook Pro Retina 2017</td>
+  <td class="column4">$2199.00</td>
+  <td class="column5">1</td>
+  <td class="column6">$2199.00</td>
+  </tr>
+  <tr>
+  <td class="column1">2017-09-21 05:57</td>
+  <td class="column2">200388</td>
+  <td class="column3">Game Console Controller</td>
+  <td class="column4">$999.00</td>
+  <td class="column5">1</td>
+  <td class="column6">$999.00</td>
+  </tr>
+  <tr>
+  <td class="column1">2017-09-19 05:57</td>
+  <td class="column2">200387</td>
+  <td class="column3">iPhone X 64Gb Grey</td>
+  <td class="column4">$999.00</td>
+  <td class="column5">1</td>
+  <td class="column6">$999.00</td>
+  </tr>
+  <tr>
+  <td class="column1">2017-09-18 05:57</td>
+  <td class="column2">200386</td>
+  <td class="column3">iPhone X 64Gb Grey</td>
+  <td class="column4">$999.00</td>
+  <td class="column5">1</td>
+  <td class="column6">$999.00</td>
+  </tr>
+  </tbody>
+  </table>
    %}}
+
