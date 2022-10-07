@@ -3,7 +3,7 @@
         "image": "mcr.microsoft.com/devcontainers/base:bullseye",
 	"settings": {},
         "features": { "ghcr.io/avsm/ocaml-devcontainers-feature/ocaml:latest": { "ocaml_version": "5.0.0"} },
-	"postCreateCommand": "sudo apt install graphviz",
+	"postCreateCommand": "sudo apt install -y graphviz && sudo chown vscode _build",
     "postAttachCommand": "dune --version",
 	"mounts": ["source=${localWorkspaceFolderBasename}-ocaml-build,target=${containerWorkspaceFolder}/_build,type=volume"],
 	"remoteUser": "vscode",

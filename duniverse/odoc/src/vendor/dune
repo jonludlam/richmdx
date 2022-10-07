@@ -1,0 +1,21 @@
+;(rule
+; (target odoc_vendor.ml)
+; (deps (glob_files *.js) (glob_files *.css) (glob_files_rec *.woff2))
+; (action (run ocaml-crunch . -e js -e css -e woff2 -o %{target} -m plain)))
+
+(rule
+ (alias runcrunchtest)
+ (deps
+  (:x odoc_vendor.ml)
+  (glob_files *.js)
+  (glob_files *.css)
+  (glob_files_rec *.woff2))
+ (action
+  (progn
+   (run ocaml-crunch . -e js -e css -e woff2 -o %{x}.corrected -m plain)
+   (diff? %{x} %{x}.corrected))))
+
+(library
+ (name odoc_vendor)
+ (public_name odoc.vendor)
+ (wrapped false))

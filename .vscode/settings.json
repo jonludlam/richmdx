@@ -2,5 +2,6 @@
     "ocaml.sandbox": {
         "kind": "global"
     },
-    "liveServer.settings.multiRootWorkspaceName": "richmdx"
+    "liveServer.settings.multiRootWorkspaceName": "richmdx",
+    "liveServer.settings.root": "/_build/default/_doc/_html/"
 }

@@ -1,0 +1,46 @@
+{0 Math}
+
+{1 Proof trees}
+
+{@ocaml[
+type expr =
+    | Var of string
+    | And of expr * expr
+    | Implies of expr * expr
+
+type prooftree =
+  | Br of expr * prooftree list
+
+let rec pp_expr fmt expr =
+    match expr with
+    | Var x -> Format.fprintf fmt "%s" x
+    | And (x, y) -> Format.fprintf fmt "%a \\land %a" pp_expr x pp_expr y
+    | Implies (x, y) -> Format.fprintf fmt "%a \\to %a" pp_expr x pp_expr y
+
+let rec pp_tree fmt tree =
+    match tree with
+    | Br (expr, []) -> Format.fprintf fmt "%a" pp_expr expr
+    | Br (expr, trees) ->
+        Format.fprintf fmt "\\frac{\\displaystyle %a}{\\displaystyle %a}"
+            pp_tree_list trees pp_expr expr
+and pp_tree_list fmt trees =
+    match trees with
+    | [] -> ()
+    | [x] -> pp_tree fmt x
+    | x::ys -> Format.fprintf fmt "%a \\qquad %a" pp_tree x pp_tree_list ys
+
+let test_tree =
+    let r = Var "V" in
+    let q = Var "Q" in
+    let p = Var "R" in
+    Br (r, [Br(And (p, q),[Br(p,[Br(And (p, q),[])]); Br(q,[Br(And (p, q),[])])]); Br(Implies(And (q, p),r),[])]);;
+]}
+
+
+
+
+
+{@ocaml[
+# let () = Mime_printer.push "text/odoc" (Format.asprintf "{math %a }" pp_tree test_tree);;
+]@
+{math \frac{\displaystyle \frac{\displaystyle \frac{\displaystyle R \land Q}{\displaystyle R} \qquad \frac{\displaystyle R \land Q}{\displaystyle Q}}{\displaystyle R \land Q} \qquad Q \land R \to V}{\displaystyle V} }}

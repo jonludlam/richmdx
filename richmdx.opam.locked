@@ -137,7 +137,7 @@ pin-depends: [
   ]
   [
     "odoc.2.2.0+dev"
-    "git+https://github.com/jonludlam/odoc.git#cf88d5e8994a9876590bcc7d58d4123fc2a27914"
+    "git+https://github.com/jonludlam/odoc.git#22c96bdee37519d495b500f773c6858968607f23"
   ]
   [
     "odoc-parser.3.0.0+dev"
@@ -249,7 +249,7 @@ x-opam-monorepo-duniverse-dirs: [
     "odoc-parser"
   ]
   [
-    "git+https://github.com/jonludlam/odoc.git#cf88d5e8994a9876590bcc7d58d4123fc2a27914"
+    "git+https://github.com/jonludlam/odoc.git#22c96bdee37519d495b500f773c6858968607f23"
     "odoc"
   ]
   [
