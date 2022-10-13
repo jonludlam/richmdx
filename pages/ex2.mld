@@ -2,7 +2,7 @@
 
 {1 Inline SVG}
 
-A classic SVG, rendered for your tiger-viewing pleasure
+A classic SVG, rendered for your tiger-viewing pleasure.
 
 {@ocaml[
 let svg = {|

@@ -3,5 +3,4 @@
 
 (mdx
   (files *.md *.mld)
-  (libraries mime_printer imagelib base64 findlib vg gg vg.svg re))
-
+  (libraries mime_printer imagelib base64 findlib vg gg vg.svg re tyxml tyxml.functor uutf))

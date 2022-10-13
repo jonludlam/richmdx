@@ -2,138 +2,40 @@
 
 {1 Here's some html}
 
-Here I've just cut+n+pasted an HTML table with some styling. Don't do this, generate the
-HTML from some nice OCaml code!
+Here I'm generating a neat HTML table with some styling.
 
 {@ocaml[
-let table = {|
-<table>
-<thead>
-<tr class="table100-head">
-<th class="column1">Date</th>
-<th class="column2">Order ID</th>
-<th class="column3">Name</th>
-<th class="column4">Price</th>
-<th class="column5">Quantity</th>
-<th class="column6">Total</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td class="column1">2017-09-29 01:22</td>
-<td class="column2">200398</td>
-<td class="column3">iPhone X 64Gb Grey</td>
-<td class="column4">$999.00</td>
-<td class="column5">1</td>
-<td class="column6">$999.00</td>
-</tr>
-<tr>
-<td class="column1">2017-09-28 05:57</td>
-<td class="column2">200397</td>
-<td class="column3">Samsung S8 Black</td>
-<td class="column4">$756.00</td>
-<td class="column5">1</td>
-<td class="column6">$756.00</td>
-</tr>
-<tr>
-<td class="column1">2017-09-26 05:57</td>
-<td class="column2">200396</td>
-<td class="column3">Game Console Controller</td>
-<td class="column4">$22.00</td>
-<td class="column5">2</td>
-<td class="column6">$44.00</td>
-</tr>
-<tr>
-<td class="column1">2017-09-25 23:06</td>
-<td class="column2">200392</td>
-<td class="column3">USB 3.0 Cable</td>
-<td class="column4">$10.00</td>
-<td class="column5">3</td>
-<td class="column6">$30.00</td>
-</tr>
-<tr>
-<td class="column1">2017-09-24 05:57</td>
-<td class="column2">200391</td>
-<td class="column3">Smartwatch 4.0 LTE Wifi</td>
-<td class="column4">$199.00</td>
-<td class="column5">6</td>
-<td class="column6">$1494.00</td>
-</tr>
-<tr>
-<td class="column1">2017-09-23 05:57</td>
-<td class="column2">200390</td>
-<td class="column3">Camera C430W 4k</td>
-<td class="column4">$699.00</td>
-<td class="column5">1</td>
-<td class="column6">$699.00</td>
-</tr>
-<tr>
-<td class="column1">2017-09-22 05:57</td>
-<td class="column2">200389</td>
-<td class="column3">Macbook Pro Retina 2017</td>
-<td class="column4">$2199.00</td>
-<td class="column5">1</td>
-<td class="column6">$2199.00</td>
-</tr>
-<tr>
-<td class="column1">2017-09-21 05:57</td>
-<td class="column2">200388</td>
-<td class="column3">Game Console Controller</td>
-<td class="column4">$999.00</td>
-<td class="column5">1</td>
-<td class="column6">$999.00</td>
-</tr>
-<tr>
-<td class="column1">2017-09-19 05:57</td>
-<td class="column2">200387</td>
-<td class="column3">iPhone X 64Gb Grey</td>
-<td class="column4">$999.00</td>
-<td class="column5">1</td>
-<td class="column6">$999.00</td>
-</tr>
-<tr>
-<td class="column1">2017-09-18 05:57</td>
-<td class="column2">200386</td>
-<td class="column3">iPhone X 64Gb Grey</td>
-<td class="column4">$999.00</td>
-<td class="column5">1</td>
-<td class="column6">$999.00</td>
-</tr>
-<tr>
-<td class="column1">2017-09-22 05:57</td>
-<td class="column2">200389</td>
-<td class="column3">Macbook Pro Retina 2017</td>
-<td class="column4">$2199.00</td>
-<td class="column5">1</td>
-<td class="column6">$2199.00</td>
-</tr>
-<tr>
-<td class="column1">2017-09-21 05:57</td>
-<td class="column2">200388</td>
-<td class="column3">Game Console Controller</td>
-<td class="column4">$999.00</td>
-<td class="column5">1</td>
-<td class="column6">$999.00</td>
-</tr>
-<tr>
-<td class="column1">2017-09-19 05:57</td>
-<td class="column2">200387</td>
-<td class="column3">iPhone X 64Gb Grey</td>
-<td class="column4">$999.00</td>
-<td class="column5">1</td>
-<td class="column6">$999.00</td>
-</tr>
-<tr>
-<td class="column1">2017-09-18 05:57</td>
-<td class="column2">200386</td>
-<td class="column3">iPhone X 64Gb Grey</td>
-<td class="column4">$999.00</td>
-<td class="column5">1</td>
-<td class="column6">$999.00</td>
-</tr>
-</tbody>
-</table>
-|}
+open Tyxml.Html
+
+let table : string list -> string list list -> _ = fun headings data ->
+  let ccls i = a_class [ Printf.sprintf "column%d" i ] in
+  table ~a:[a_class ["table100-head"]] ~thead:(thead
+      [tr (List.mapi (fun i h -> th ~a:[ ccls i ] [txt h]) headings)])
+      (List.map (fun row ->
+        tr (List.mapi (fun i d -> td ~a:[ ccls i ] [txt d]) row)) data
+      )
+
+let test_table = table
+  ["Date";"Order ID";"Name";"Price";"Quantity";"Total"] [
+  ["2017-09-29 01:22"; "200398"; "iPhone X"; "$999.00"; "1"; "$999.00"];
+  ["2017-09-28 05:57"; "200397"; "Samsung S8"; "$756.00"; "1"; "$756.00"];
+  ["2017-09-26 05:57"; "200396"; "Game Console"; "$22.00"; "2"; "$44.00"];
+  ["2017-09-25 23:06"; "200392"; "USB 3.0 Cable"; "$10.00"; "3"; "$30.00"];
+  ["2017-09-24 05:57"; "200391"; "Smartwatch"; "$199.00 "; "6"; "$1494.00"];
+  ["2017-09-23 05:57"; "200390"; "Camera C430W"; "$699.00"; "1"; "$699.00"];
+  ["2017-09-22 05:57"; "200389"; "Macbook Pro"; "$2199.00"; "1"; "$2199.00"];
+  ["2017-09-21 05:57"; "200388"; "Game Console"; "$999.00"; "1"; "$999.00"];
+  ["2017-09-19 05:57"; "200387"; "iPhone X"; "$999.00"; "1"; "$999.00"];
+  ["2017-09-18 05:57"; "200386"; "iPhone X"; "$999.00"; "1"; "$999.00"];
+  ["2017-09-22 05:57"; "200389"; "Macbook Pro"; "$2199.00"; "1"; "$2199.00"];
+  ["2017-09-21 05:57"; "200388"; "Game Console"; "$999.00"; "1"; "$999.00"];
+  ["2017-09-19 05:57"; "200387"; "iPhone X"; "$999.00"; "1"; "$999.00"];
+  ["2017-09-18 05:57"; "200386"; "iPhone X"; "$999.00"; "1"; "$999.00"] ]
+
+let render t = Format.asprintf "%a@." (pp_elt ~indent:true ()) t
+
+let table = render test_table
+
 let style = {|
 table {
  border-spacing:1;
@@ -317,132 +219,68 @@ let () = Mime_printer.push "text/html" html
    text-align:right;
    padding-right:62px
   }
-  </style>
-  <table>
-  <thead>
-  <tr class="table100-head">
-  <th class="column1">Date</th>
-  <th class="column2">Order ID</th>
-  <th class="column3">Name</th>
-  <th class="column4">Price</th>
-  <th class="column5">Quantity</th>
-  <th class="column6">Total</th>
+  </style><table class="table100-head">
+ <thead>
+  <tr><th class="column0">Date</th><th class="column1">Order ID</th>
+   <th class="column2">Name</th><th class="column3">Price</th>
+   <th class="column4">Quantity</th><th class="column5">Total</th>
   </tr>
-  </thead>
-  <tbody>
-  <tr>
-  <td class="column1">2017-09-29 01:22</td>
-  <td class="column2">200398</td>
-  <td class="column3">iPhone X 64Gb Grey</td>
-  <td class="column4">$999.00</td>
-  <td class="column5">1</td>
-  <td class="column6">$999.00</td>
-  </tr>
-  <tr>
-  <td class="column1">2017-09-28 05:57</td>
-  <td class="column2">200397</td>
-  <td class="column3">Samsung S8 Black</td>
-  <td class="column4">$756.00</td>
-  <td class="column5">1</td>
-  <td class="column6">$756.00</td>
-  </tr>
-  <tr>
-  <td class="column1">2017-09-26 05:57</td>
-  <td class="column2">200396</td>
-  <td class="column3">Game Console Controller</td>
-  <td class="column4">$22.00</td>
-  <td class="column5">2</td>
-  <td class="column6">$44.00</td>
-  </tr>
-  <tr>
-  <td class="column1">2017-09-25 23:06</td>
-  <td class="column2">200392</td>
-  <td class="column3">USB 3.0 Cable</td>
-  <td class="column4">$10.00</td>
-  <td class="column5">3</td>
-  <td class="column6">$30.00</td>
-  </tr>
-  <tr>
-  <td class="column1">2017-09-24 05:57</td>
-  <td class="column2">200391</td>
-  <td class="column3">Smartwatch 4.0 LTE Wifi</td>
-  <td class="column4">$199.00</td>
-  <td class="column5">6</td>
-  <td class="column6">$1494.00</td>
-  </tr>
-  <tr>
-  <td class="column1">2017-09-23 05:57</td>
-  <td class="column2">200390</td>
-  <td class="column3">Camera C430W 4k</td>
-  <td class="column4">$699.00</td>
-  <td class="column5">1</td>
-  <td class="column6">$699.00</td>
-  </tr>
-  <tr>
-  <td class="column1">2017-09-22 05:57</td>
-  <td class="column2">200389</td>
-  <td class="column3">Macbook Pro Retina 2017</td>
-  <td class="column4">$2199.00</td>
-  <td class="column5">1</td>
-  <td class="column6">$2199.00</td>
-  </tr>
-  <tr>
-  <td class="column1">2017-09-21 05:57</td>
-  <td class="column2">200388</td>
-  <td class="column3">Game Console Controller</td>
-  <td class="column4">$999.00</td>
-  <td class="column5">1</td>
-  <td class="column6">$999.00</td>
-  </tr>
-  <tr>
-  <td class="column1">2017-09-19 05:57</td>
-  <td class="column2">200387</td>
-  <td class="column3">iPhone X 64Gb Grey</td>
-  <td class="column4">$999.00</td>
-  <td class="column5">1</td>
-  <td class="column6">$999.00</td>
-  </tr>
-  <tr>
-  <td class="column1">2017-09-18 05:57</td>
-  <td class="column2">200386</td>
-  <td class="column3">iPhone X 64Gb Grey</td>
-  <td class="column4">$999.00</td>
-  <td class="column5">1</td>
-  <td class="column6">$999.00</td>
-  </tr>
-  <tr>
-  <td class="column1">2017-09-22 05:57</td>
-  <td class="column2">200389</td>
-  <td class="column3">Macbook Pro Retina 2017</td>
-  <td class="column4">$2199.00</td>
-  <td class="column5">1</td>
-  <td class="column6">$2199.00</td>
-  </tr>
-  <tr>
-  <td class="column1">2017-09-21 05:57</td>
-  <td class="column2">200388</td>
-  <td class="column3">Game Console Controller</td>
-  <td class="column4">$999.00</td>
-  <td class="column5">1</td>
-  <td class="column6">$999.00</td>
-  </tr>
-  <tr>
-  <td class="column1">2017-09-19 05:57</td>
-  <td class="column2">200387</td>
-  <td class="column3">iPhone X 64Gb Grey</td>
-  <td class="column4">$999.00</td>
-  <td class="column5">1</td>
-  <td class="column6">$999.00</td>
-  </tr>
-  <tr>
-  <td class="column1">2017-09-18 05:57</td>
-  <td class="column2">200386</td>
-  <td class="column3">iPhone X 64Gb Grey</td>
-  <td class="column4">$999.00</td>
-  <td class="column5">1</td>
-  <td class="column6">$999.00</td>
-  </tr>
-  </tbody>
-  </table>
-   %}}
-
+ </thead>
+ <tr><td class="column0">2017-09-29 01:22</td><td class="column1">200398</td>
+  <td class="column2">iPhone X</td><td class="column3">$999.00</td>
+  <td class="column4">1</td><td class="column5">$999.00</td>
+ </tr>
+ <tr><td class="column0">2017-09-28 05:57</td><td class="column1">200397</td>
+  <td class="column2">Samsung S8</td><td class="column3">$756.00</td>
+  <td class="column4">1</td><td class="column5">$756.00</td>
+ </tr>
+ <tr><td class="column0">2017-09-26 05:57</td><td class="column1">200396</td>
+  <td class="column2">Game Console</td><td class="column3">$22.00</td>
+  <td class="column4">2</td><td class="column5">$44.00</td>
+ </tr>
+ <tr><td class="column0">2017-09-25 23:06</td><td class="column1">200392</td>
+  <td class="column2">USB 3.0 Cable</td><td class="column3">$10.00</td>
+  <td class="column4">3</td><td class="column5">$30.00</td>
+ </tr>
+ <tr><td class="column0">2017-09-24 05:57</td><td class="column1">200391</td>
+  <td class="column2">Smartwatch</td><td class="column3">$199.00 </td>
+  <td class="column4">6</td><td class="column5">$1494.00</td>
+ </tr>
+ <tr><td class="column0">2017-09-23 05:57</td><td class="column1">200390</td>
+  <td class="column2">Camera C430W</td><td class="column3">$699.00</td>
+  <td class="column4">1</td><td class="column5">$699.00</td>
+ </tr>
+ <tr><td class="column0">2017-09-22 05:57</td><td class="column1">200389</td>
+  <td class="column2">Macbook Pro</td><td class="column3">$2199.00</td>
+  <td class="column4">1</td><td class="column5">$2199.00</td>
+ </tr>
+ <tr><td class="column0">2017-09-21 05:57</td><td class="column1">200388</td>
+  <td class="column2">Game Console</td><td class="column3">$999.00</td>
+  <td class="column4">1</td><td class="column5">$999.00</td>
+ </tr>
+ <tr><td class="column0">2017-09-19 05:57</td><td class="column1">200387</td>
+  <td class="column2">iPhone X</td><td class="column3">$999.00</td>
+  <td class="column4">1</td><td class="column5">$999.00</td>
+ </tr>
+ <tr><td class="column0">2017-09-18 05:57</td><td class="column1">200386</td>
+  <td class="column2">iPhone X</td><td class="column3">$999.00</td>
+  <td class="column4">1</td><td class="column5">$999.00</td>
+ </tr>
+ <tr><td class="column0">2017-09-22 05:57</td><td class="column1">200389</td>
+  <td class="column2">Macbook Pro</td><td class="column3">$2199.00</td>
+  <td class="column4">1</td><td class="column5">$2199.00</td>
+ </tr>
+ <tr><td class="column0">2017-09-21 05:57</td><td class="column1">200388</td>
+  <td class="column2">Game Console</td><td class="column3">$999.00</td>
+  <td class="column4">1</td><td class="column5">$999.00</td>
+ </tr>
+ <tr><td class="column0">2017-09-19 05:57</td><td class="column1">200387</td>
+  <td class="column2">iPhone X</td><td class="column3">$999.00</td>
+  <td class="column4">1</td><td class="column5">$999.00</td>
+ </tr>
+ <tr><td class="column0">2017-09-18 05:57</td><td class="column1">200386</td>
+  <td class="column2">iPhone X</td><td class="column3">$999.00</td>
+  <td class="column4">1</td><td class="column5">$999.00</td>
+ </tr>
+</table>
+ %}}
