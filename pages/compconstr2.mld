@@ -1,0 +1,322 @@
+{0 Compiler Construction supervision 2}
+
+{1 Problem 1}
+
+Again by hand, eliminate tail recursion from fold_left. 
+
+Does your source-to-source transformation 
+change the type of the function?  If so, 
+can you rewrite your code so that the type does not change? 
+
+{@ocaml[
+# let rec fold_left : ('a -> 'b -> 'a) -> 'a -> 'b list -> 'a = fun f accu l ->
+    match l with
+    | [] -> accu
+    | a::l -> fold_left f (f accu a) l;;
+val fold_left : ('a -> 'b -> 'a) -> 'a -> 'b list -> 'a = <fun>
+# let sum1 = fold_left (+) 0 [1;2;3;4;5;6;7;8;9;10];;
+val sum1 : int = 55
+# sum1;;
+- : int = 55
+]}
+
+{@ocaml[
+# let fold_left_iter : ('a -> 'b -> 'a) -> 'a -> 'b list -> 'a = fun f accu l ->
+    let r_l = ref l in
+    let r_accu = ref accu in
+    while !r_l <> [] do
+        let item = List.hd !r_l in
+        r_l := List.tl !r_l;
+        r_accu := f !r_accu item
+    done;
+    !r_accu;;
+val fold_left_iter : ('a -> 'b -> 'a) -> 'a -> 'b list -> 'a = <fun>
+# let sum2 = fold_left_iter (+) 0 [1;2;3;4;5;6;7;8;9;10];;
+val sum2 : int = 55
+# sum1;;
+- : int = 55
+]}
+
+{1 Problem 2}
+
+Apply (by hand) the CPS transformation to the gcd code.
+
+Explain your results.
+
+{@ocaml[
+# let rec gcd (m,n) =
+    if m=n
+    then m
+    else if m<n
+        then gcd (m, n-m)
+        else gcd (m-n, n);;
+val gcd : int * int -> int = <fun>
+# List.map gcd [(24, 638); (17, 289); (31, 1889)];;
+- : int list = [2; 17; 1]
+]}
+
+{@ocaml[
+# let rec gcd_cps cnt (m, n) =
+    if m=n
+    then cnt m
+    else if m<n
+        then gcd_cps cnt (m, n-m)
+        else gcd_cps cnt (m-n, n);;
+val gcd_cps : (int -> 'a) -> int * int -> 'a = <fun>
+# List.map (gcd_cps (fun x -> x)) [(24, 638); (17, 289); (31, 1889)];;
+- : int list = [2; 17; 1]
+]}
+
+{1 Problem 3}
+
+Environments are treated as function in [interp_0.ml].
+
+Can you transform these definitions, starting 
+with defunctionalisation, and arrive at a list-based
+implementation of environments? 
+
+{@ocaml[
+# let update(env, (x, v)) = fun y -> if x = y then v else env y;;
+val update : ('a -> 'b) * ('a * 'b) -> 'a -> 'b = <fun>
+# let rec mupdate(env, bl) = 
+    match bl with 
+    | [] -> env 
+    | (x, v) :: rest -> mupdate(update(env, (x, v)), rest);;
+val mupdate : ('a -> 'b) * ('a * 'b) list -> 'a -> 'b = <fun>
+# let env_empty = fun y -> failwith (y ^ " is not defined!\n");;
+val env_empty : string -> 'a = <fun>
+# let env_init bl = mupdate(env_empty, bl);;
+val env_init : (string * 'a) list -> string -> 'a = <fun>
+# let lookup env x = env x;;
+val lookup : ('a -> 'b) -> 'a -> 'b = <fun>
+]}
+
+Let's test it:
+
+{@ocaml[
+# let env = env_empty;;
+val env : string -> 'a = <fun>
+# let env' = update (env, ("a",1));;
+val env' : string -> int = <fun>
+# let env'' = update (env', ("b",2));;
+val env'' : string -> int = <fun>
+# lookup env'' "a";;
+- : int = 1
+# lookup env'' "b";;
+- : int = 2
+# lookup env'' "c";;
+Exception: Failure "c is not defined!\n".
+]}
+
+So, to do this, we're going to change the two explicit lambdas in the
+above into a variant type. The two lambdas are:
+
+{@ocaml skip[
+let update(env, (x, v)) = fun y -> if x = y then v else env y
+let env_empty = fun y -> failwith (y ^ " is not defined!\n")
+]}
+
+in this we'll regard [empty] as a value itself (though it's obviously
+a function), and [update] is a function that takes an existing environment
+and a new binding
+and returns a new environment. It might be helpful to declare a new type
+for environments and rewrite the type declaration using it:
+
+{@ocaml[
+# type ('a, 'b) env = 'a -> 'b;;
+type ('a, 'b) env = 'a -> 'b
+# let update : ('a, 'b) env * ('a * 'b) -> ('a, 'b) env =
+    fun (env,(x, v)) -> fun y -> if x = y then v else env y;;
+val update : ('a, 'b) env * ('a * 'b) -> ('a, 'b) env = <fun>
+]}
+
+{@ocaml[let env_empty : ('a, 'b) env = fun y -> failwith (y ^ " is not defined!\n");;]}
+
+Now let's turn those two into constructors of a variant type:
+
+{@ocaml[
+type ('a, 'b) env =
+    | Empty
+    | Update of ('a * 'b) * (('a, 'b) env)
+]}
+
+Let's rewrite our original functions using this now:
+
+{@ocaml[
+let update_dfc : ('a, 'b) env * ('a * 'b) -> ('a, 'b) env =
+    fun (env, (x,v)) -> Update ((x,v), env)
+let rec mupdate_dfc (env, bl) =
+    match bl with
+    | [] -> env
+    | (x,v) :: rest -> mupdate_dfc (update_dfc (env,(x,v)), rest)
+let env_empty_dfc : ('a, 'b) env = Empty
+]}
+
+and create a single [apply] function that executes the body of
+the original functions:
+
+{@ocaml[
+# let rec apply env y =
+    match env with
+    | Empty -> failwith (y ^ " is not defined!\n")
+    | Update ((x,v), env') ->
+        if x=y then v else apply env' y;;
+val apply : (string, 'a) env -> string -> 'a = <fun>
+# let lookup_dfc env x = apply env x;;
+val lookup_dfc : (string, 'a) env -> string -> 'a = <fun>
+]}
+
+{@ocaml[
+# let env = env_empty_dfc;;
+val env : ('a, 'b) env = Empty
+# let env' = update_dfc (env, ("a",1));;
+val env' : (string, int) env = Update (("a", 1), Empty)
+# let env'' = update_dfc (env', ("b",2));;
+val env'' : (string, int) env = Update (("b", 2), Update (("a", 1), Empty))
+# lookup_dfc env'' "a";;
+- : int = 1
+# lookup_dfc env'' "b";;
+- : int = 2
+# lookup_dfc env'' "c";;
+Exception: Failure "c is not defined!\n".
+]}
+
+Looking at the definition of our new defunctionalized env, it should be
+apparent that this is isomorphic to a list of pairs
+
+{@ocaml[
+type ('a, 'b) env = ('a * 'b) list
+let update_list : ('a, 'b) env * ('a * 'b) -> ('a, 'b) env =
+    fun (env, (x,v)) -> (x,v) :: env
+let rec mupdate_list (env, bl) =
+    match bl with
+    | [] -> env
+    | (x,v) :: rest -> mupdate_list (update_dfc (env,(x,v)), rest)
+let env_empty_list : ('a, 'b) env = []
+let rec apply_list env y =
+    match env with
+    | [] -> failwith (y ^ " is not defined!\n")
+    | (x,v) :: env' ->
+        if x=y then v else apply_list env' y;;
+let lookup_list env x = apply_list env x;;
+]}
+
+{@ocaml[
+# let env = env_empty_list;;
+val env : ('a, 'b) env = []
+# let env' = update_list (env, ("a",1));;
+val env' : (string, int) env = [("a", 1)]
+# let env'' = update_list (env', ("b",2));;
+val env'' : (string, int) env = [("b", 2); ("a", 1)]
+# lookup_list env'' "a";;
+- : int = 1
+# lookup_list env'' "b";;
+- : int = 2
+# lookup_list env'' "c";;
+Exception: Failure "c is not defined!\n".
+]}
+
+
+{1 Problem 4}
+
+Below is the code for (uncurried) map, with an test using fib. 
+Can you apply the CPS transformation to map to produce map_cps? 
+Will this map_cps still work with fib?  If not, what to do? 
+
+{@ocaml[
+# let rec map(f, l) = 
+    match l with 
+    | [] -> [] 
+    | a :: rest -> (f a) :: (map(f, rest));; 
+val map : ('a -> 'b) * 'a list -> 'b list = <fun>
+# let rec fib m =
+    if m = 0 
+    then 1 
+    else if m = 1 
+         then 1 
+         else fib(m - 1) + fib (m - 2);;
+val fib : int -> int = <fun>
+# let map_test_1 = map(fib, [0; 1; 2; 3; 4; 5; 6; 7; 8; 9; 10]);;
+val map_test_1 : int list = [1; 1; 2; 3; 5; 8; 13; 21; 34; 55; 89]
+]}
+
+OK let's give this a go:
+
+{@ocaml[
+# let rec map_cps : (('b list -> 'c) * ('a -> 'b) * 'a list) -> 'c = fun (cnt, f, l) ->
+    match l with
+    | [] -> cnt []
+    | a :: rest ->
+        let a' = f a in
+        map_cps ((fun vs -> cnt (a' :: vs)), f, rest);;
+val map_cps : ('b list -> 'c) * ('a -> 'b) * 'a list -> 'c = <fun>
+]}
+
+{@ocaml[
+# map_cps((fun x -> x), fib, [0; 1; 2; 3; 4; 5; 6; 7; 8; 9; 10]);;
+- : int list = [1; 1; 2; 3; 5; 8; 13; 21; 34; 55; 89]
+]}
+
+This is getting there, but not quite sufficient. For a program in CPS style, every call is
+in tail position. Our call to [f] isn't, but that's because [f] itself isn't in
+CPS style.
+
+{@ocaml[
+# let rec map_cps2 : (('b list -> 'c) * ('a * ('b -> 'c) -> 'c) * 'a list) -> 'c = fun (cnt, f, l) ->
+    match l with
+    | [] -> cnt []
+    | a :: rest ->
+        f (a, fun a' ->
+            map_cps2 ((fun vs -> cnt (a' :: vs)), f, rest));;
+val map_cps2 : ('b list -> 'c) * ('a * ('b -> 'c) -> 'c) * 'a list -> 'c =
+  <fun>
+]}
+
+Now we need a fib_cps that allows us to use this:
+
+{@ocaml[
+# let rec fib_cps (m,cnt) =
+    if m = 0 
+    then cnt 1 
+    else if m = 1 
+         then cnt 1 
+         else fib_cps ((m - 1), (fun x -> fib_cps ((m - 2),(fun y -> cnt (x+y)))));;
+val fib_cps : int * (int -> 'a) -> 'a = <fun>
+# map_cps2 ((fun x -> x), fib_cps, [0; 1; 2; 3; 4; 5; 6; 7; 8; 9; 10]);;
+- : int list = [1; 1; 2; 3; 5; 8; 13; 21; 34; 55; 89]
+]}
+
+How about doing it how the lectures did it?
+
+First rewrite with [let]s on the function calls:
+
+{@ocaml[
+# let rec map1 (f, l) = 
+    match l with 
+    | [] -> [] 
+    | a :: rest ->
+        let a' = f a in
+        let rest' = map1 (f, rest) in
+        a' :: rest';; 
+val map1 : ('a -> 'b) * 'a list -> 'b list = <fun>
+]}
+
+Now, let's add the [k] parameter and convert those [let] sites to function
+calls:
+
+{@ocaml[
+# let rec map2 (f, l) k = 
+    match l with 
+    | [] -> [] 
+    | a :: rest ->
+        f a (fun a' ->
+        map2 (f, rest) (fun rest' ->
+        k (a' :: rest')));; 
+val map2 :
+  ('a -> ('b -> 'c list) -> 'c list) * 'a list -> ('b list -> 'd) -> 'c list =
+  <fun>
+]}
+
+Now, this has clearly changed the type of [f] from [('a -> 'b)] to ['a -> ('b -> 'c list) -> 'c list)]
+so our old [fib] function won't work - obviously, since it's not tail recursive!
+
