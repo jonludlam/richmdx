@@ -3,28 +3,8 @@
 open! Import
 
 module Config : sig
-  module Display : sig
-    type verbosity =
-      | Quiet  (** Only display errors *)
-      | Short  (** One line per command *)
-      | Verbose  (** Display all commands fully *)
-
-    type t =
-      { status_line : bool
-      ; verbosity : verbosity
-      }
-
-    val all : (string * t) list
-
-    val to_dyn : t -> Dyn.t
-
-    (** The console backend corresponding to the selected display mode *)
-    val console_backend : t -> Console.Backend.t
-  end
-
   type t =
     { concurrency : int
-    ; display : Display.t
     ; stats : Dune_stats.t option
     ; insignificant_changes : [ `Ignore | `React ]
     ; signal_watcher : [ `Yes | `No ]
@@ -51,17 +31,10 @@ module Run : sig
     | No_watcher
 
   module Shutdown : sig
-    module Signal : sig
-      (* TODO move this stuff into stdune? *)
-      type t =
-        | Int
-        | Quit
-        | Term
-    end
-
     module Reason : sig
       type t =
         | Requested
+        | Timeout
         | Signal of Signal.t
     end
 
@@ -138,8 +111,6 @@ val wait_for_process :
   -> Pid.t
   -> Proc.Process_info.t Fiber.t
 
-val yield_if_there_are_pending_events : unit -> unit Fiber.t
-
 (** If the current build was cancelled, raise
     [Memo.Non_reproducible Run.Build_cancelled]. *)
 val abort_if_build_was_cancelled : unit Fiber.t
@@ -177,9 +148,7 @@ val inject_memo_invalidation : Memo.Invalidation.t -> unit Fiber.t
     this long. *)
 val sleep : float -> unit Fiber.t
 
-(** Wait until all file system changes that happened so far have been
-    acknowledged by the scheduler. *)
-val flush_file_watcher : unit -> unit Fiber.t
+val stats : unit -> Dune_stats.t option Fiber.t
 
 (** Wait for a build input to change. If a build input change was seen but
     hasn't been handled yet, return immediately.

@@ -87,6 +87,7 @@ We want to see mangled names in the dune-package file as well:
     (byte __private__/secret/secret.cma)
     (native __private__/secret/secret.cmxs))
    (native_archives __private__/secret/secret.a)
+     (source (path Secret) (impl (path __private__/secret/secret.ml))))))
 
 Cmi for secret library must not be visible for normal users. Hence they must be
 hidden.
@@ -157,6 +158,7 @@ Now we make sure such libraries are transitively usable when installed:
   $ export OCAMLPATH=$PWD/_build/install/default/lib
   $ dune exec --root use -- ./run.exe
   Entering directory 'use'
+  Leaving directory 'use'
   Using library foo: from library foo secret string
 
 But we cannot use such libraries directly:
@@ -170,4 +172,5 @@ But we cannot use such libraries directly:
   1 | print_endline ("direct access attempt: " ^ Secret.secret)
                                                  ^^^^^^^^^^^^^
   Error: Unbound module Secret
+  Leaving directory 'use'
   [1]

@@ -1,0 +1,23 @@
+{0 2022 Exam Paper}
+
+{1 FoCS}
+
+{@ocaml[
+type word = char list
+type guess = char * int
+type guesses = guess list
+]}
+
+{@ocaml[
+let mapi fn xs =
+    let rec inner i xs =
+        match xs with
+        | x::xs -> (fn i x)::inner (i+1) xs
+        | [] -> []
+    in inner 0 xs
+
+let rec lookfor a xs =
+    match xs with
+    | (b, a')::xs -> if a=a' then Some b else lookfor a xs
+    | [] -> None
+]}

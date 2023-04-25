@@ -55,6 +55,27 @@ end = struct
   type t = one list
 
   and one = { url : Url.t; text : Inline.t; children : t }
+  let rec remove_links l =
+    let open Inline in
+    l
+    |> List.map (fun one ->
+           let return desc = [ { one with desc } ] in
+           match one.desc with
+           | Text _ as t -> return t
+           | Entity _ as t -> return t
+           | Linebreak as t -> return t
+           | Styled (st, content) -> return (Styled (st, remove_links content))
+           | Link (_, t) -> t
+           | InternalLink { target = Resolved _; content = t; _ } -> t
+           | InternalLink { target = Unresolved; content = t; _ } -> t
+           | Source l ->
+               let rec f = function
+                 | Source.Elt t -> Source.Elt (remove_links t)
+                 | Tag (tag, t) -> Tag (tag, List.map f t)
+               in
+               return @@ Source (List.map f l)
+           | (Math _ | Raw_markup _) as t -> return t)
+    |> List.concat
 
   let classify ~on_sub (i : Item.t) : _ Rewire.action =
     match i with
@@ -62,7 +83,8 @@ end = struct
     | Include { content = { status; content; _ }; _ } ->
         if on_sub status then Rec content else Skip
     | Heading { label = None; _ } -> Skip
-    | Heading { label = Some label; level; title } ->
+    | Heading { label = Some label; level; title; _ } ->
+        let title = remove_links title in
         Heading ((label, title), level)
 
   let node mkurl (anchor, text) children =
@@ -91,7 +113,7 @@ end = struct
       | Declaration { content; _ } -> walk_documentedsrc content
       | Include i -> walk_items i.content.content)
 
-  let compute (p : Page.t) = walk_items (p.header @ p.items)
+  let compute (p : Page.t) = walk_items (p.preamble @ p.items)
 end
 
 module Shift = struct
@@ -133,7 +155,7 @@ module Shift = struct
         let content =
           {
             page with
-            header = walk_item ~on_sub shift_state page.header;
+            preamble = walk_item ~on_sub shift_state page.preamble;
             items = walk_item ~on_sub shift_state page.items;
           }
         in
@@ -150,9 +172,9 @@ module Shift = struct
   and walk_item ~on_sub shift_state (l : Item.t list) =
     match l with
     | [] -> []
-    | Heading { label; level; title } :: rest ->
+    | Heading { label; level; title; source_anchor } :: rest ->
         let shift_state, level = shift shift_state level in
-        Item.Heading { label; level; title }
+        Item.Heading { label; level; title; source_anchor }
         :: walk_item ~on_sub shift_state rest
     | Include subp :: rest ->
         let content = include_ ~on_sub shift_state subp.content in
@@ -174,16 +196,21 @@ module Shift = struct
 end
 
 module Headings : sig
-  val fold : ('a -> Heading.t -> 'a) -> 'a -> Page.t -> 'a
-  (** Fold over every headings, follow subpages, nested documentedsrc and
-      expansions. *)
+  val fold :
+    enter_subpages:bool -> ('a -> Heading.t -> 'a) -> 'a -> Page.t -> 'a
+  (** Fold over every headings, follow nested documentedsrc and
+      expansions, as well as subpages if [enter_subpages] is [true]. *)
 
   val foldmap :
-    ('a -> Heading.t -> 'a * Heading.t) -> 'a -> Page.t -> 'a * Page.t
+    enter_subpages:bool ->
+    ('a -> Heading.t -> 'a * Heading.t) ->
+    'a ->
+    Page.t ->
+    'a * Page.t
 end = struct
-  let fold =
+  let fold ~enter_subpages =
     let rec w_page f acc page =
-      w_items f (w_items f acc page.Page.header) page.items
+      w_items f (w_items f acc page.Page.preamble) page.items
     and w_items f acc ts = List.fold_left (w_item f) acc ts
     and w_item f acc = function
       | Heading h -> f acc h
@@ -194,7 +221,7 @@ end = struct
     and w_documentedsrc_one f acc = function
       | DocumentedSrc.Code _ | Documented _ -> acc
       | Nested t -> w_documentedsrc f acc t.code
-      | Subpage sp -> w_page f acc sp.content
+      | Subpage sp -> if enter_subpages then w_page f acc sp.content else acc
       | Alternative (Expansion exp) -> w_documentedsrc f acc exp.expansion
     in
     w_page
@@ -207,11 +234,11 @@ end = struct
 
   let foldmap_left f acc lst = foldmap_left f acc [] lst
 
-  let foldmap =
+  let foldmap ~enter_subpages =
     let rec w_page f acc page =
-      let acc, header = w_items f acc page.Page.header in
+      let acc, preamble = w_items f acc page.Page.preamble in
       let acc, items = w_items f acc page.items in
-      (acc, { page with header; items })
+      (acc, { page with preamble; items })
     and w_items f acc items = foldmap_left (w_item f) acc items
     and w_item f acc = function
       | Heading h ->
@@ -231,8 +258,10 @@ end = struct
           let acc, code = w_documentedsrc f acc t.code in
           (acc, Nested { t with code })
       | Subpage sp ->
-          let acc, content = w_page f acc sp.content in
-          (acc, Subpage { sp with content })
+          if enter_subpages then
+            let acc, content = w_page f acc sp.content in
+            (acc, Subpage { sp with content })
+          else (acc, Subpage sp)
       | Alternative (Expansion exp) ->
           let acc, expansion = w_documentedsrc f acc exp.expansion in
           (acc, Alternative (Expansion { exp with expansion }))
@@ -241,7 +270,7 @@ end = struct
 end
 
 module Labels : sig
-  val disambiguate_page : Page.t -> Page.t
+  val disambiguate_page : enter_subpages:bool -> Page.t -> Page.t
   (** Colliding labels are allowed in the model but don't make sense in
       generators because we need to link to everything (eg. the TOC).
       Post-process the doctree, add a "_N" suffix to dupplicates, the first
@@ -257,30 +286,63 @@ end = struct
     if StringMap.mem new_label labels then make_label_unique labels di label'
     else new_label
 
-  let disambiguate_page page =
+  let disambiguate_page ~enter_subpages page =
     (* Perform two passes, we need to know every labels before allocating new
         ones. *)
     let labels =
-      Headings.fold
+      Headings.fold ~enter_subpages
         (fun acc h ->
           match h.label with Some l -> StringMap.add l 0 acc | None -> acc)
         StringMap.empty page
     in
-    Headings.foldmap
-      (fun acc h ->
+    Headings.foldmap ~enter_subpages
+      (fun labels h ->
         match h.label with
         | Some l ->
-            let d_index = StringMap.find l acc in
+            let d_index = StringMap.find l labels in
             let h =
               if d_index = 0 then h
               else
-                let label = Some (make_label_unique acc d_index l) in
+                let label = Some (make_label_unique labels d_index l) in
                 { h with label }
             in
-            (StringMap.add l (d_index + 1) acc, h)
-        | None -> (acc, h))
+            (StringMap.add l (d_index + 1) labels, h)
+        | None -> (labels, h))
       labels page
     |> snd
+end
+
+module PageTitle : sig
+  val render_title : ?source_anchor:Url.t -> Page.t -> Item.t list
+  val render_src_title : Source_page.t -> Item.t list
+end = struct
+  let format_title ~source_anchor kind name =
+    let mk title =
+      let level = 0 and label = None in
+      [ Types.Item.Heading { level; label; title; source_anchor } ]
+    in
+    let prefix s =
+      mk (Types.inline (Text (s ^ " ")) :: Codefmt.code (Codefmt.txt name))
+    in
+    match kind with
+    | `Module -> prefix "Module"
+    | `Parameter _ -> prefix "Parameter"
+    | `ModuleType -> prefix "Module type"
+    | `ClassType -> prefix "Class type"
+    | `Class -> prefix "Class"
+    | `SourcePage -> prefix "Source file"
+    | `Page | `LeafPage | `File -> []
+
+  let make_name_from_path { Url.Path.name; parent; _ } =
+    match parent with
+    | None | Some { kind = `Page; _ } -> name
+    | Some p -> Printf.sprintf "%s.%s" p.name name
+
+  let render_title ?source_anchor (p : Page.t) =
+    format_title ~source_anchor p.url.kind (make_name_from_path p.url)
+
+  let render_src_title (p : Source_page.t) =
+    format_title ~source_anchor:None p.url.kind (make_name_from_path p.url)
 end
 
 module Math : sig
@@ -337,15 +399,11 @@ end = struct
       match x.desc with
       | Styled (_, x) -> inline x
       | Link (_, x) -> inline x
-      | InternalLink x -> internallink x
+      | InternalLink x -> inline x.content
       | Math _ -> true
       | Text _ | Entity _ | Linebreak | Source _ | Raw_markup _ -> false
     in
     List.exists inline_ x
-
-  and internallink : InternalLink.t -> bool = function
-    | Resolved (_, x) -> inline x
-    | Unresolved x -> inline x
 
   and description : Description.t -> bool =
    fun x ->

@@ -76,7 +76,11 @@ module File : sig
 
   val to_string : t -> string
 
+  val segs : t -> string list
+
   val read : t -> (string, [> msg ]) result
+
+  val exists : t -> bool
 
   module Table : Hashtbl.S with type key = t
 end

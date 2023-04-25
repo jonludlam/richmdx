@@ -102,10 +102,8 @@ end = struct
         ; cctx = Some (exes.buildable.loc, cctx)
         ; js =
             Some
-              (List.concat_map exes.names ~f:(fun (_, exe) ->
-                   List.map
-                     [ exe ^ ".bc.js"; exe ^ ".bc.runtime.js" ]
-                     ~f:(Path.Build.relative dir)))
+              (List.map exes.names ~f:(fun (_, exe) ->
+                   Path.Build.relative dir (exe ^ Js_of_ocaml.Ext.exe)))
         ; source_dirs = None
         })
     | Alias alias ->
@@ -146,6 +144,16 @@ end = struct
       | true ->
         let+ () = Mdx.gen_rules ~sctx ~dir ~scope ~expander mdx in
         empty_none)
+    | Melange_stanzas.Emit.T mel ->
+      let+ cctx, merlin =
+        Melange_rules.setup_emit_cmj_rules ~dir_contents ~dir ~scope ~sctx
+          ~expander mel
+      in
+      { merlin = Some merlin
+      ; cctx = Some (mel.loc, cctx)
+      ; js = None
+      ; source_dirs = None
+      }
     | _ -> Memo.return empty_none
 
   let of_stanzas stanzas ~cctxs ~sctx ~src_dir ~ctx_dir ~scope ~dir_contents
@@ -200,15 +208,24 @@ let define_all_alias ~dir ~project ~js_targets =
 
 let gen_rules sctx dir_contents cctxs expander
     { Dune_file.dir = src_dir; stanzas; project } ~dir:ctx_dir =
-  let files_to_install
-      { Install_conf.section = _; files; package = _; enabled_if = _ } =
-    Memo.List.map files ~f:(fun fb ->
-        File_binding.Unexpanded.expand_src ~dir:ctx_dir fb
-          ~f:(Expander.No_deps.expand_str expander)
-        >>| Path.build)
-    >>= fun files ->
-    Rules.Produce.Alias.add_deps (Alias.all ~dir:ctx_dir)
-      (Action_builder.paths files)
+  let files_to_install install_conf =
+    let expand_str = Expander.No_deps.expand_str expander in
+    let files_and_dirs =
+      let* files_expanded =
+        Install_conf.expand_files install_conf ~expand_str ~dir:ctx_dir
+      in
+      let+ dirs_expanded =
+        Install_conf.expand_dirs install_conf ~expand_str ~dir:ctx_dir
+      in
+      List.map (files_expanded @ dirs_expanded) ~f:(fun fb ->
+          File_binding.Expanded.src fb |> Path.build)
+    in
+    let action =
+      let open Action_builder.O in
+      let* files_and_dirs = Action_builder.of_memo files_and_dirs in
+      Action_builder.paths files_and_dirs
+    in
+    Rules.Produce.Alias.add_deps (Alias.all ~dir:ctx_dir) action
   in
   let* { For_stanza.merlin = merlins
        ; cctx = cctxs
@@ -229,25 +246,28 @@ let gen_rules sctx dir_contents cctxs expander
   let* () =
     Memo.parallel_iter stanzas ~f:(fun stanza ->
         match (stanza : Stanza.t) with
-        | Menhir.T m -> (
+        | Menhir_stanza.T m -> (
           Expander.eval_blang expander m.enabled_if >>= function
           | false -> Memo.return ()
           | true -> (
             let* ml_sources = Dir_contents.ocaml dir_contents in
             match
-              List.find_map (Menhir_rules.module_names m) ~f:(fun name ->
-                  Option.bind (Ml_sources.lookup_module ml_sources name)
-                    ~f:(fun buildable ->
-                      List.find_map cctxs ~f:(fun (loc, cctx) ->
-                          Option.some_if (Loc.equal loc buildable.loc) cctx)))
+              Menhir_rules.module_names m
+              |> List.find_map ~f:(fun name ->
+                     let open Option.O in
+                     let* origin = Ml_sources.find_origin ml_sources name in
+                     List.find_map cctxs ~f:(fun (loc, cctx) ->
+                         Option.some_if
+                           (Loc.equal loc (Ml_sources.Origin.loc origin))
+                           cctx))
             with
+            | Some cctx -> Menhir_rules.gen_rules cctx m ~dir:ctx_dir
             | None ->
               (* This happens often when passing a [-p ...] option that hides a
                  library *)
               let file_targets =
-                List.map
-                  (Dune_file.Menhir.targets m)
-                  ~f:(Path.Build.relative ctx_dir)
+                Menhir_stanza.targets m
+                |> List.map ~f:(Path.Build.relative ctx_dir)
               in
               Super_context.add_rule sctx ~dir:ctx_dir
                 (Action_builder.fail
@@ -259,12 +279,12 @@ let gen_rules sctx dir_contents cctxs expander
                                 files produced by this stanza are part of."
                            ])
                    }
-                |> Action_builder.with_file_targets ~file_targets)
-            | Some cctx -> Menhir_rules.gen_rules cctx m ~dir:ctx_dir))
+                |> Action_builder.with_file_targets ~file_targets)))
         | Coq_stanza.Theory.T m -> (
           Expander.eval_blang expander m.enabled_if >>= function
           | false -> Memo.return ()
-          | true -> Coq_rules.setup_rules ~sctx ~dir:ctx_dir ~dir_contents m)
+          | true ->
+            Coq_rules.setup_theory_rules ~sctx ~dir:ctx_dir ~dir_contents m)
         | Coq_stanza.Extraction.T m ->
           Coq_rules.setup_extraction_rules ~sctx ~dir:ctx_dir ~dir_contents m
         | Coq_stanza.Coqpp.T m ->
@@ -309,7 +329,7 @@ let gen_rules sctx dir_contents cctxs ~source_dir ~dir :
     []
 
 (* To be called once per project, when we are generating the rules for the root
-   diretory of the project *)
+   directory of the project *)
 let gen_project_rules sctx project =
   let+ () = Opam_create.add_rules sctx project
   and+ () = Install_rules.gen_project_rules sctx project
@@ -323,13 +343,11 @@ type automatic_sub_dir =
   | Formatted
   | Bin
 
-let bin_dir_basename = ".bin"
-
 let automatic_sub_dirs_map =
   String.Map.of_list_exn
     [ (Utop.utop_dir_basename, Utop)
     ; (Format_rules.formatted_dir_basename, Formatted)
-    ; (bin_dir_basename, Bin)
+    ; (Artifacts.Bin.bin_dir_basename, Bin)
     ]
 
 let gen_rules_for_automatic_sub_dir ~sctx ~dir kind =
@@ -355,7 +373,62 @@ let has_rules subdirs f =
        ; rules
        })
 
-let redirect_to_parent = Memo.return Build_config.Redirect_to_parent
+(* The emit stanza of melange outputs in a single output directory (and its
+   descendants). We attach all .js generating rules to this root directory.
+
+   Since we allow user defined rules in this output directory, we need to know
+   when we're under the emit directory so that we load both the user defined
+   rules and the rules originating from the emit stanza. *)
+type for_melange =
+  { (* the directory in which the emit stanza is defined. *)
+    stanza_dir : Path.Build.t
+  ; (* the emit stanza itself. *)
+    stanza : Melange_stanzas.Emit.t
+  }
+
+(* Detect if [dir] is under the target directory of a melange.emit stanza. *)
+let rec under_melange_emit_target ~dir =
+  match Path.Build.parent dir with
+  | None -> Memo.return None
+  | Some parent -> (
+    let* stanzas = Only_packages.stanzas_in_dir parent in
+    match stanzas with
+    | None -> under_melange_emit_target ~dir:parent
+    | Some stanzas -> (
+      match
+        List.find_map stanzas.stanzas ~f:(function
+          | Melange_stanzas.Emit.T mel ->
+            let target_dir = Melange_rules.emit_target_dir ~dir:parent mel in
+            Option.some_if (Path.Build.equal target_dir dir) mel
+          | _ -> None)
+      with
+      | None -> under_melange_emit_target ~dir:parent
+      | Some stanza -> Memo.return @@ Some { stanza_dir = parent; stanza }))
+
+let melange_emit_rules sctx { stanza_dir; stanza } =
+  let rules =
+    Rules.collect_unit (fun () ->
+        let* dir_contents = Dir_contents.get sctx ~dir:stanza_dir in
+        let* scope = Scope.DB.find_by_dir stanza_dir in
+        Melange_rules.setup_emit_js_rules ~dir_contents ~dir:stanza_dir ~scope
+          ~sctx stanza)
+  in
+  { Build_config.Rules.build_dir_only_sub_dirs = Subdir_set.empty
+  ; directory_targets = Path.Build.Map.empty
+  ; rules
+  }
+
+let gen_melange_emit_rules sctx ~dir ({ stanza_dir; stanza } as for_melange) =
+  if Path.Build.equal dir (Melange_rules.emit_target_dir ~dir:stanza_dir stanza)
+  then Some (melange_emit_rules sctx for_melange)
+  else None
+
+let gen_melange_emit_rules_or_empty_redirect sctx ~dir = function
+  | None -> Build_config.(Redirect_to_parent Rules.empty)
+  | Some for_melange -> (
+    match gen_melange_emit_rules sctx ~dir for_melange with
+    | Some r -> Build_config.Redirect_to_parent r
+    | None -> Build_config.(Redirect_to_parent Rules.empty))
 
 (* Once [gen_rules] has decided what to do with the directory, it should end
    with [has_rules] or [redirect_to_parent] *)
@@ -377,6 +450,12 @@ let gen_rules ~sctx ~dir components : Build_config.gen_rules_result Memo.t =
       | _ -> S.empty)
       (fun () -> Jsoo_rules.setup_separate_compilation_rules sctx rest)
   | "_doc" :: rest -> Odoc.gen_rules sctx rest ~dir
+  | ".topmod" :: comps ->
+    has_rules
+      (match comps with
+      | [] -> S.All
+      | _ -> S.empty)
+      (fun () -> Top_module.gen_rules sctx ~dir ~comps)
   | ".ppx" :: rest ->
     has_rules
       (match rest with
@@ -384,6 +463,7 @@ let gen_rules ~sctx ~dir components : Build_config.gen_rules_result Memo.t =
       | _ -> S.empty)
       (fun () -> Preprocessing.gen_rules sctx rest)
   | _ -> (
+    let* under_melange_emit_target = under_melange_emit_target ~dir in
     let src_dir = Path.Build.drop_build_context_exn dir in
     Source_tree.find_dir src_dir >>= function
     | None -> (
@@ -391,27 +471,36 @@ let gen_rules ~sctx ~dir components : Build_config.gen_rules_result Memo.t =
          we are in this branch *)
       let parent = Path.Source.parent_exn src_dir in
       Source_tree.find_dir parent >>= function
-      | None -> redirect_to_parent
+      | None ->
+        Memo.return
+        @@ gen_melange_emit_rules_or_empty_redirect sctx ~dir
+             under_melange_emit_target
       | Some _ -> (
         match
           String.Map.find automatic_sub_dirs_map (Path.Source.basename src_dir)
         with
-        | None -> redirect_to_parent
         | Some kind ->
           has_rules Subdir_set.empty (fun () ->
-              gen_rules_for_automatic_sub_dir ~sctx ~dir kind)))
+              gen_rules_for_automatic_sub_dir ~sctx ~dir kind)
+        | None ->
+          Memo.return
+          @@ gen_melange_emit_rules_or_empty_redirect sctx ~dir
+               under_melange_emit_target))
     | Some source_dir -> (
       (* This interprets "rule" and "copy_files" stanzas. *)
       Dir_contents.triage sctx ~dir
       >>= function
-      | Group_part _ -> redirect_to_parent
-      | Standalone_or_root { directory_targets; contents } ->
+      | Group_part _ ->
+        Memo.return
+        @@ gen_melange_emit_rules_or_empty_redirect sctx ~dir
+             under_melange_emit_target
+      | Standalone_or_root { directory_targets; contents } -> (
         let rules =
           let* () = Memo.Lazy.force Context.force_configurator_files in
           let* { Dir_contents.root = dir_contents; subdirs; rules } =
             Memo.Lazy.force contents
           in
-          let* rules' =
+          let+ rules' =
             Rules.collect_unit (fun () ->
                 let* () =
                   let project = Source_tree.Dir.project source_dir in
@@ -426,28 +515,49 @@ let gen_rules ~sctx ~dir components : Build_config.gen_rules_result Memo.t =
                 in
                 let* cctxs = gen_rules sctx dir_contents [] ~source_dir ~dir in
                 Memo.parallel_iter subdirs ~f:(fun dc ->
-                    gen_rules sctx dir_contents cctxs ~source_dir
-                      ~dir:(Dir_contents.dir dc)
-                    >>| ignore))
+                    let+ (_ : (Loc.t * Compilation_context.t) list) =
+                      gen_rules sctx dir_contents cctxs ~source_dir
+                        ~dir:(Dir_contents.dir dc)
+                    in
+                    ()))
           in
-          Memo.return (Rules.union rules rules')
+          Rules.union rules rules'
         in
-        let subdirs = String.Set.of_keys automatic_sub_dirs_map in
-        let subdirs =
+        let* subdirs =
+          let+ subdirs =
+            let subdirs = String.Set.of_keys automatic_sub_dirs_map in
+            let+ stanzas = Only_packages.stanzas_in_dir dir in
+            match stanzas with
+            | None -> subdirs
+            | Some stanzas ->
+              List.filter_map stanzas.stanzas ~f:(function
+                | Melange_stanzas.Emit.T mel -> Some mel.target
+                | _ -> None)
+              |> String.Set.of_list |> String.Set.union subdirs
+          in
           match components with
           | [] ->
             String.Set.union subdirs
-              (String.Set.of_list [ ".js"; "_doc"; ".ppx"; ".dune" ])
+              (String.Set.of_list [ ".js"; "_doc"; ".ppx"; ".dune"; ".topmod" ])
           | _ -> subdirs
         in
         let+ directory_targets =
           collect_directory_targets ~dir ~init:directory_targets
         in
-        Build_config.Rules
-          { build_dir_only_sub_dirs = S.These subdirs
+        let build_config =
+          { Build_config.Rules.build_dir_only_sub_dirs = S.These subdirs
           ; directory_targets
           ; rules
-          }))
+          }
+        in
+        match under_melange_emit_target with
+        | None -> Build_config.Rules build_config
+        | Some for_melange -> (
+          match gen_melange_emit_rules sctx ~dir for_melange with
+          | None -> Build_config.Redirect_to_parent build_config
+          | Some emit ->
+            Build_config.Rules
+              (Build_config.Rules.combine_exn build_config emit)))))
 
 let with_context ctx ~f =
   Super_context.find ctx >>= function
@@ -459,9 +569,10 @@ let gen_rules ctx_or_install ~dir components =
   | Install ctx ->
     with_context ctx ~f:(fun sctx ->
         let+ subdirs, rules = Install_rules.symlink_rules sctx ~dir in
+        let directory_targets = Rules.directory_targets rules in
         Build_config.Rules
           { build_dir_only_sub_dirs = subdirs
-          ; directory_targets = Path.Build.Map.empty
+          ; directory_targets
           ; rules = Memo.return rules
           })
   | Context ctx ->

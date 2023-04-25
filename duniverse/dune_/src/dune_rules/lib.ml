@@ -179,14 +179,19 @@ module Error = struct
               (Path.to_string_maybe_quoted dir))
       ]
 
-  let private_deps_not_allowed ~loc private_dep =
+  let private_deps_not_allowed ~kind ~loc private_dep =
     let name = Lib_info.name private_dep in
+
     User_error.E
       (User_error.make ~loc
          [ Pp.textf
-             "Library %S is private, it cannot be a dependency of a public \
-              library. You need to give %S a public name."
-             (Lib_name.to_string name) (Lib_name.to_string name)
+             "Library %S is private, it cannot be a dependency of a %s. You \
+              need to give %S a public name."
+             (Lib_name.to_string name)
+             (match kind with
+             | `Private_package -> "private library attached to a package"
+             | `Public -> "public library")
+             (Lib_name.to_string name)
          ])
 
   let only_ppx_deps_allowed ~loc dep =
@@ -246,8 +251,6 @@ module Id : sig
 
   val to_dep_path_lib : t -> Dep_path.Entry.Lib.t
 
-  val hash : t -> int
-
   val compare : t -> t -> Ordering.t
 
   include Comparator.OPS with type t := t
@@ -280,8 +283,6 @@ end = struct
   let to_dep_path_lib { path; name } = { Dep_path.Entry.Lib.path; name }
 
   include (Comparator.Operators (T) : Comparator.OPS with type t := T.t)
-
-  let hash { path; name } = Tuple.T2.hash Path.hash Lib_name.hash (path, name)
 
   let make ~path ~name = { path; name }
 
@@ -374,7 +375,6 @@ type db =
   ; resolve : Lib_name.t -> resolve_result Memo.t
   ; all : Lib_name.t list Memo.Lazy.t
   ; lib_config : Lib_config.t
-  ; instrument_with : Lib_name.t list
   }
 
 and resolve_result =
@@ -431,9 +431,10 @@ let wrapped t =
       assert false (* will always be specified in dune package *)
     | Some (This x) -> Some x)
 
-let equal l1 l2 = Ordering.is_eq (compare l1 l2)
+(* We can't write a structural equality because of all the lazy fields *)
+let equal = ( == )
 
-let hash t = Id.hash t.unique_id
+let hash = Poly.hash
 
 include Comparable.Make (T)
 
@@ -518,6 +519,9 @@ module Sub_system = struct
 
   let public_info =
     let open Memo.O in
+    (* TODO this should continue using [Resolve]. Not doing so
+       will prevent generating the [dune-package] rule if the sub system is
+       missing *)
     let module M = Memo.Make_map_traversals (Sub_system_name.Map) in
     fun lib ->
       M.parallel_map lib.sub_systems ~f:(fun _name inst ->
@@ -600,16 +604,17 @@ end = struct
 end
 
 type private_deps =
-  | From_same_project
+  | From_same_project of [ `Public | `Private_package ]
   | Allow_all
 
 let check_private_deps lib ~loc ~(private_deps : private_deps) =
   match private_deps with
   | Allow_all -> Ok lib
-  | From_same_project -> (
+  | From_same_project kind -> (
     match Lib_info.status lib.info with
     | Private (_, Some _) -> Ok lib
-    | Private (_, None) -> Error (Error.private_deps_not_allowed ~loc lib.info)
+    | Private (_, None) ->
+      Error (Error.private_deps_not_allowed ~kind ~loc lib.info)
     | _ -> Ok lib)
 
 module Vlib : sig
@@ -752,8 +757,7 @@ end = struct
     else Resolve.Memo.return closure
 end
 
-let instrumentation_backend ?(do_not_fail = false) instrument_with resolve
-    libname =
+let instrumentation_backend instrument_with resolve libname =
   let open Resolve.Memo.O in
   if not (List.mem ~equal:Lib_name.equal instrument_with (snd libname)) then
     Resolve.Memo.return None
@@ -762,15 +766,12 @@ let instrumentation_backend ?(do_not_fail = false) instrument_with resolve
     match lib |> info |> Lib_info.instrumentation_backend with
     | Some _ as ppx -> Resolve.Memo.return ppx
     | None ->
-      if do_not_fail then Resolve.Memo.return (Some libname)
-      else
-        Resolve.Memo.fail
-          (User_error.make ~loc:(fst libname)
-             [ Pp.textf
-                 "Library %S is not declared to have an instrumentation \
-                  backend."
-                 (Lib_name.to_string (snd libname))
-             ])
+      Resolve.Memo.fail
+        (User_error.make ~loc:(fst libname)
+           [ Pp.textf
+               "Library %S is not declared to have an instrumentation backend."
+               (Lib_name.to_string (snd libname))
+           ])
 
 module rec Resolve_names : sig
   val find_internal : db -> Lib_name.t -> Status.t Memo.t
@@ -838,15 +839,16 @@ end = struct
       (* [Allow_all] is used for libraries that are installed because we don't
          have to check it again. It has been checked when compiling the
          libraries before their installation *)
-      | Installed_private | Private _ | Installed -> Allow_all
-      | Public (_, _) -> From_same_project
+      | Installed_private | Private (_, None) | Installed -> Allow_all
+      | Private (_, Some _) -> From_same_project `Private_package
+      | Public (_, _) -> From_same_project `Public
     in
     let resolve name = resolve_dep db name ~private_deps in
     let* resolved =
       let open Resolve.Memo.O in
       let* pps =
         let instrumentation_backend =
-          instrumentation_backend db.instrument_with resolve
+          instrumentation_backend db.lib_config.instrument_with resolve
         in
         Lib_info.preprocess info
         |> Preprocess.Per_module.with_instrumentation ~instrumentation_backend
@@ -1600,7 +1602,7 @@ let closure l ~linking =
     Resolve_names.compile_closure_with_overlap_checks None l
       ~forbidden_libraries
 
-let descriptive_closure (l : lib list) : lib list Memo.t =
+let descriptive_closure (l : lib list) ~with_pps : lib list Memo.t =
   (* [add_work todo l] adds the libraries in [l] to the list [todo],
      that contains the libraries to handle next *)
   let open Memo.O in
@@ -1624,7 +1626,9 @@ let descriptive_closure (l : lib list) : lib list Memo.t =
       else
         let todo = add_work todo libs
         and acc = Set.add acc lib in
-        let* todo = register_work todo lib.pps in
+        let* todo =
+          if with_pps then register_work todo lib.pps else Memo.return todo
+        in
         let* todo = register_work todo lib.ppx_runtime_deps in
         let* todo = register_work todo lib.requires in
         work todo acc
@@ -1726,12 +1730,7 @@ module DB = struct
   type t = db
 
   let create ~parent ~resolve ~all ~lib_config () =
-    { parent
-    ; resolve
-    ; all = Memo.lazy_ all
-    ; lib_config
-    ; instrument_with = lib_config.Lib_config.instrument_with
-    }
+    { parent; resolve; all = Memo.lazy_ all; lib_config }
 
   let create_from_findlib findlib =
     let lib_config = Findlib.lib_config findlib in
@@ -1788,7 +1787,7 @@ module DB = struct
 
   let available t name = Resolve_names.available_internal t name
 
-  let get_compile_info t ?(allow_overlaps = false) name =
+  let get_compile_info t ~allow_overlaps name =
     let open Memo.O in
     let+ find = find_even_when_hidden t name in
     match find with
@@ -1797,8 +1796,8 @@ module DB = struct
         [ ("name", Lib_name.to_dyn name) ]
     | Some lib -> (lib, Compile.for_lib ~allow_overlaps t lib)
 
-  let resolve_user_written_deps_for_exes t exes ?(allow_overlaps = false)
-      ?(forbidden_libraries = []) deps ~pps ~dune_version =
+  let resolve_user_written_deps t targets ~allow_overlaps ~forbidden_libraries
+      deps ~pps ~dune_version ~merlin_ident =
     let resolved =
       Memo.lazy_ (fun () ->
           Resolve_names.resolve_deps_and_add_runtime_deps t deps ~pps
@@ -1831,16 +1830,16 @@ module DB = struct
                 (Option.some_if (not allow_overlaps) t)
                 ~forbidden_libraries res)
             ~human_readable_description:(fun () ->
-              match exes with
-              | [ (loc, name) ] ->
+              match targets with
+              | `Melange_emit name -> Pp.textf "melange target %s" name
+              | `Exe [ (loc, name) ] ->
                 Pp.textf "executable %s in %s" name (Loc.to_file_colon_line loc)
-              | names ->
+              | `Exe names ->
                 let loc, _ = List.hd names in
                 Pp.textf "executables %s in %s"
                   (String.enumerate_and (List.map ~f:snd names))
                   (Loc.to_file_colon_line loc)))
     in
-    let merlin_ident = Merlin_ident.for_exes ~names:(List.map ~f:snd exes) in
     let pps =
       let open Memo.O in
       let+ resolved = Memo.Lazy.force resolved in
@@ -1883,7 +1882,7 @@ module DB = struct
     | _ -> Memo.return l
 
   let instrumentation_backend t libname =
-    instrumentation_backend t.instrument_with (resolve t) libname
+    instrumentation_backend t.lib_config.instrument_with (resolve t) libname
 end
 
 let to_dune_lib ({ info; _ } as lib) ~modules ~foreign_objects ~dir :
@@ -1903,7 +1902,9 @@ let to_dune_lib ({ info; _ } as lib) ~modules ~foreign_objects ~dir :
   in
   let modules =
     let install_dir = Obj_dir.dir obj_dir in
-    Modules.version_installed modules ~install_dir
+    Modules.version_installed modules
+      ~src_root:(Lib_info.src_dir lib.info)
+      ~install_dir
   in
   let use_public_name ~lib_field ~info_field =
     match (info_field, lib_field) with
@@ -1941,7 +1942,7 @@ let to_dune_lib ({ info; _ } as lib) ~modules ~foreign_objects ~dir :
       ~foreign_objects ~obj_dir ~implements ~default_implementation ~sub_systems
       ~modules
   in
-  Dune_package.Lib.of_dune_lib ~info ~modules ~main_module_name
+  Dune_package.Lib.of_dune_lib ~info ~main_module_name
 
 module Local : sig
   type t = private lib

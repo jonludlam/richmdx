@@ -9,26 +9,26 @@ val to_dyn : t -> Dyn.t
 val equal : t -> t -> bool
 
 val lib :
-     src_dir:Path.Build.t
+     obj_dir:Path.Build.t
   -> main_module_name:Module_name.t option
   -> wrapped:Wrapped.t
   -> stdlib:Ocaml_stdlib.t option
   -> lib_name:Lib_name.Local.t
   -> implements:bool
-  -> modules:Module.Name_map.t
+  -> modules:Module.t Module_trie.t
   -> t
 
-val encode : t -> Dune_lang.t
+val encode : t -> src_dir:Path.t -> Dune_lang.t
 
-val decode :
-     version:Dune_lang.Syntax.Version.t
-  -> src_dir:Path.t
-  -> implements:bool
-  -> t Dune_lang.Decoder.t
+val decode : src_dir:Path.t -> t Dune_lang.Decoder.t
 
 val impl : t -> vlib:t -> t
 
-val find_dep : t -> of_:Module.t -> Module_name.t -> Module.t option
+val find_dep :
+     t
+  -> of_:Module.t
+  -> Module_name.t
+  -> (Module.t list, [ `Parent_cycle ]) result
 
 val find : t -> Module_name.t -> Module.t option
 
@@ -45,22 +45,40 @@ val singleton_exe : Module.t -> t
 
 val fold_no_vlib : t -> init:'acc -> f:(Module.t -> 'acc -> 'acc) -> 'acc
 
-val exe_unwrapped : Module.Name_map.t -> t
+module Group : sig
+  type t
 
-val exe_wrapped : src_dir:Path.Build.t -> modules:Module.Name_map.t -> t
+  val alias : t -> Module.t
+
+  val lib_interface : t -> Module.t
+
+  val for_alias : t -> (Module_name.t * Module.t) list
+end
+
+val canonical_path : t -> Group.t -> Module.t -> Module_name.Path.t
+
+val fold_no_vlib_with_aliases :
+     t
+  -> init:'acc
+  -> normal:(Module.t -> 'acc -> 'acc)
+  -> alias:(Group.t -> 'acc -> 'acc)
+  -> 'acc
+
+val exe_unwrapped : Module.t Module_trie.t -> obj_dir:Path.Build.t -> t
+
+val make_wrapped :
+     obj_dir:Path.Build.t
+  -> modules:Module.t Module_trie.t
+  -> [ `Exe | `Melange ]
+  -> t
 
 (** For wrapped libraries, this is the user written entry module for the
     library. For single module libraries, it's the sole module in the library *)
 val lib_interface : t -> Module.t option
 
-(** Returns the modules that need to be aliased in the alias module *)
-val for_alias : t -> Module.Name_map.t
-
 val fold_user_written : t -> f:(Module.t -> 'acc -> 'acc) -> init:'acc -> 'acc
 
 val map_user_written : t -> f:(Module.t -> Module.t Memo.t) -> t Memo.t
-
-val map : t -> f:(Module.t -> Module.t) -> t
 
 val fold_user_available : t -> f:(Module.t -> 'acc -> 'acc) -> init:'acc -> 'acc
 
@@ -89,27 +107,21 @@ val entry_modules : t -> Module.t list
 val main_module_name : t -> Module_name.t option
 
 (** Returns only the virtual module names in the library *)
-val virtual_module_names : t -> Module_name.Set.t
-
-(** Returns the alias module if it exists. This module only exists for
-    [(wrapped true)] and when there is more than 1 module. *)
-val alias_module : t -> Module.t option
+val virtual_module_names : t -> Module_name.Path.Set.t
 
 val wrapped : t -> Wrapped.t
 
-val version_installed : t -> install_dir:Path.t -> t
+val version_installed : t -> src_root:Path.t -> install_dir:Path.t -> t
 
-val alias_for : t -> Module.t -> Module.t option
+val alias_for : t -> Module.t -> Module.t list
+
+val group_interfaces : t -> Module.t -> Module.t list
+
+val local_open : t -> Module.t -> Module_name.t list
 
 val is_stdlib_alias : t -> Module.t -> bool
 
 val exit_module : t -> Module.t option
-
-(** [relocate_alias_module t ~src_dir] sets the source directory of the alias
-    module to [src_dir]. Only works if [t] is wrapped. *)
-val relocate_alias_module : t -> src_dir:Path.t -> t
-
-val is_empty : t -> bool
 
 val as_singleton : t -> Module.t option
 

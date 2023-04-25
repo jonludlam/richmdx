@@ -141,7 +141,7 @@ let expand_version { scope; _ } ~source s =
     let libname = Lib_name.of_string s in
     let pkgname = Lib_name.package_name libname in
     if not (String.equal (Package.Name.to_string pkgname) s) then
-      User_error.raise ~loc:source.Dune_lang.Template.Pform.loc
+      User_error.raise ~loc:source.loc
         [ Pp.textf
             "Library names are not allowed in this position. Only package \
              names are allowed"
@@ -150,7 +150,7 @@ let expand_version { scope; _ } ~source s =
     Lib.DB.find (Scope.libs scope) libname >>| function
     | Some lib -> value_from_version (Lib_info.version (Lib.info lib))
     | None ->
-      User_error.raise ~loc:source.Dune_lang.Template.Pform.loc
+      User_error.raise ~loc:source.loc
         [ Pp.textf
             "Package %S doesn't exist in the current project and isn't \
              installed either."
@@ -190,7 +190,7 @@ let expand_artifact ~source t a s =
           ~what:"Module"
           (Module_name.to_string name)
       | Some (t, m) -> (
-        match Obj_dir.Module.cm_file t m ~kind with
+        match Obj_dir.Module.cm_file t m ~kind:(Ocaml kind) with
         | None -> Action_builder.return [ Value.String "" ]
         | Some path -> dep (Path.build path)))
     | Lib mode -> (
@@ -610,7 +610,26 @@ let expand_pform_gen ~(context : Context.t) ~bindings ~dir ~source
                            "This file must be a list of lines escaped using \
                             OCaml's conventions"
                        ]
-                   | Ok s -> s)))))
+                   | Ok s -> s)))
+      | Coq_config ->
+        Need_full_expander
+          (fun t ->
+            Without
+              (let open Memo.O in
+              let* coqc =
+                Artifacts.Bin.binary t.bin_artifacts_host ~loc:None "coqc"
+              in
+              let+ t = Coq_config.make ~coqc in
+              match Coq_config.by_name t s with
+              | None ->
+                User_error.raise
+                  ~loc:(Dune_lang.Template.Pform.loc source)
+                  [ Pp.textf "Unknown Coq configuration variable %S" s ]
+              | Some v -> (
+                match v with
+                | Int x -> string (string_of_int x)
+                | String x -> string x
+                | Path x -> Value.L.paths [ x ])))))
 
 (* Make sure to delay exceptions *)
 let expand_pform_gen ~context ~bindings ~dir ~source pform =

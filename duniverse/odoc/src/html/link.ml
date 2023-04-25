@@ -6,7 +6,7 @@ module Path = struct
 
   let segment_to_string (kind, name) =
     match kind with
-    | `Module | `Page -> name
+    | `Module | `Page | `File | `SourcePage -> name
     | _ -> Format.asprintf "%a-%s" Url.Path.pp_kind kind name
 
   let is_leaf_page url = url.Url.Path.kind = `LeafPage
@@ -15,7 +15,7 @@ module Path = struct
     let l = Url.Path.to_list url in
     let is_dir =
       if is_flat then function `Page -> `Always | _ -> `Never
-      else function `LeafPage -> `Never | `File -> `Never | _ -> `Always
+      else function `LeafPage | `File | `SourcePage -> `Never | _ -> `Always
     in
     let dir, file = Url.Path.split ~is_dir l in
     let dir = List.map segment_to_string dir in
@@ -24,6 +24,7 @@ module Path = struct
       | [] -> "index.html"
       | [ (`LeafPage, name) ] -> name ^ ".html"
       | [ (`File, name) ] -> name
+      | [ (`SourcePage, name) ] -> name ^ ".html"
       | xs ->
           assert is_flat;
           String.concat "-" (List.map segment_to_string xs) ^ ".html"
@@ -45,7 +46,7 @@ let rec drop_shared_prefix l1 l2 =
   | l1 :: l1s, l2 :: l2s when l1 = l2 -> drop_shared_prefix l1s l2s
   | _, _ -> (l1, l2)
 
-let href ~(config : Config.t) ~resolve t =
+let href ~config ~resolve t =
   let { Url.Anchor.page; anchor; _ } = t in
 
   let target_loc = Path.for_linking ~is_flat:(Config.flat config) page in

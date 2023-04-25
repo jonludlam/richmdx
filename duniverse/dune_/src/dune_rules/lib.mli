@@ -55,11 +55,15 @@ end
 (** See {!Sub_system} *)
 type sub_system = ..
 
+type db
+
 (** For compiling a library or executable *)
 module Compile : sig
   type lib := t
 
   type t
+
+  val for_lib : allow_overlaps:bool -> db -> lib -> t
 
   (** Return the list of dependencies needed for linking this library/exe *)
   val requires_link : t -> lib list Resolve.t Memo.Lazy.t
@@ -93,14 +97,14 @@ module DB : sig
   type lib := t
 
   (** A database allow to resolve library names *)
-  type t
+  type t = db
 
   val installed : Context.t -> t Memo.t
 
   module Resolve_result : sig
-    type t
+    type db := t
 
-    type db
+    type t
 
     val not_found : t
 
@@ -110,7 +114,6 @@ module DB : sig
 
     val redirect : db option -> Loc.t * Lib_name.t -> t
   end
-  with type db := t
 
   (** Create a new library database. [resolve] is used to resolve library names
       in this database.
@@ -136,7 +139,7 @@ module DB : sig
   (** Retrieve the compile information for the given library. Works for
       libraries that are optional and not available as well. *)
   val get_compile_info :
-    t -> ?allow_overlaps:bool -> Lib_name.t -> (lib * Compile.t) Memo.t
+    t -> allow_overlaps:bool -> Lib_name.t -> (lib * Compile.t) Memo.t
 
   val resolve : t -> Loc.t * Lib_name.t -> lib Resolve.Memo.t
 
@@ -149,15 +152,16 @@ module DB : sig
       of libraries is transitively closed and sorted by the order of
       dependencies.
 
-      This function is for executables stanzas. *)
-  val resolve_user_written_deps_for_exes :
+      This function is for executables or melange.emit stanzas. *)
+  val resolve_user_written_deps :
        t
-    -> (Loc.t * string) list
-    -> ?allow_overlaps:bool
-    -> ?forbidden_libraries:(Loc.t * Lib_name.t) list
+    -> [ `Exe of (Import.Loc.t * string) list | `Melange_emit of string ]
+    -> allow_overlaps:bool
+    -> forbidden_libraries:(Loc.t * Lib_name.t) list
     -> Lib_dep.t list
     -> pps:(Loc.t * Lib_name.t) list
     -> dune_version:Dune_lang.Syntax.Version.t
+    -> merlin_ident:Merlin_ident.t
     -> Compile.t
 
   val resolve_pps : t -> (Loc.t * Lib_name.t) list -> lib list Resolve.Memo.t
@@ -176,13 +180,16 @@ end
 
 val closure : t list -> linking:bool -> t list Resolve.Memo.t
 
-(** [descriptive_closure libs] computes the smallest set of libraries that
-    contains the libraries in the list [libs], and that is transitively closed.
-    The output list is guaranteed to have no duplicates and to be sorted. The
-    difference with [closure libs] is that the latter may raise an error when
-    overlapping implementations of virtual libraries are detected.
+(** [descriptive_closure ~with_pps libs] computes the smallest set of libraries
+    that contains the libraries in the list [libs], and that is transitively
+    closed. If [with_pps = true], then the dependencies towards ppx-rewriters
+    are also taken into account (note that runtime dependendies of ppx-rewriters
+    are always taken into account, regardless of the value of the flag
+    [with_pps]). The output list is guaranteed to have no duplicates and to be
+    sorted. The difference with [closure libs] is that the latter may raise an
+    error when overlapping implementations of virtual libraries are detected.
     [descriptive_closure libs] makes no such check. *)
-val descriptive_closure : t list -> t list Memo.t
+val descriptive_closure : t list -> with_pps:bool -> t list Memo.t
 
 (** {1 Sub-systems} *)
 

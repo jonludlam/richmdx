@@ -1445,7 +1445,8 @@ let%expect_test _ =
           "value": [
             {
               "`List": [
-                "`Unordered", [ [ { "`Paragraph": [ { "`Word": "Foo" } ] } ] ]
+                "`Unordered",
+                [ [ { "`Paragraph": [ { "`Word": "Foo" } ] } ] ]
               ]
             }
           ],
@@ -1627,7 +1628,8 @@ let%expect_test _ =
         {|
         {
           "value": [
-            { "`List": [ "`Unordered", [] ] }, { "`Paragraph": [ { "`Word": "}" } ] }
+            { "`List": [ "`Unordered", [] ] },
+            { "`Paragraph": [ { "`Word": "}" } ] }
           ],
           "warnings": [
             "File \"f.ml\", line 1, characters 4-6:\n'{2 ...}' (section heading) is not allowed in '{ul ...}' (bulleted list).\nSuggestion: move '{2 ...}' (section heading) outside the list.",
@@ -1645,7 +1647,8 @@ let%expect_test _ =
           "value": [
             {
               "`List": [
-                "`Unordered", [ [ { "`Paragraph": [ { "`Word": "foo" } ] } ] ]
+                "`Unordered",
+                [ [ { "`Paragraph": [ { "`Word": "foo" } ] } ] ]
               ]
             },
             {
@@ -1820,13 +1823,11 @@ let%expect_test _ =
               "`Heading": [
                 { "heading_level": "`Subsection", "heading_label_explicit": "false" },
                 { "`Label": [ { "`Page": [ "None", "f.ml" ] }, "" ] },
-                [ { "`Styled": [ "`Emphasis", [] ] } ]
+                [ { "`Link": [ "foo", [] ] } ]
               ]
             }
           ],
-          "warnings": [
-            "File \"f.ml\", line 1, characters 3-11:\n'{{:...} ...}' (external link) is not allowed in '{2 ...}' (section heading)."
-          ]
+          "warnings": []
         } |}]
 
     let reference_in_markup =
@@ -1839,13 +1840,11 @@ let%expect_test _ =
               "`Heading": [
                 { "heading_level": "`Subsection", "heading_label_explicit": "false" },
                 { "`Label": [ { "`Page": [ "None", "f.ml" ] }, "" ] },
-                [ { "`Styled": [ "`Emphasis", [] ] } ]
+                [ { "`Reference": [ { "`Root": [ "foo", "`TUnknown" ] }, [] ] } ]
               ]
             }
           ],
-          "warnings": [
-            "File \"f.ml\", line 1, characters 3-9:\n'{!...}' (cross-reference) is not allowed in '{2 ...}' (section heading)."
-          ]
+          "warnings": []
         } |}]
 
     let two =
@@ -1989,7 +1988,8 @@ let%expect_test _ =
         {|
         {
           "value": [
-            { "`Tag": { "`Author": "Foo" } }, { "`Code_block": [ "None", "bar" ] }
+            { "`Tag": { "`Author": "Foo" } },
+            { "`Code_block": [ "None", "bar" ] }
           ],
           "warnings": [
             "File \"f.ml\", line 2, characters 0-7:\n'{[...]}' (code block) is not allowed in the tags section.\nSuggestion: move '{[...]}' (code block) before any tags."
@@ -2030,7 +2030,8 @@ let%expect_test _ =
             { "`Tag": { "`Author": "Foo" } },
             {
               "`List": [
-                "`Unordered", [ [ { "`Paragraph": [ { "`Word": "bar" } ] } ] ]
+                "`Unordered",
+                [ [ { "`Paragraph": [ { "`Word": "bar" } ] } ] ]
               ]
             }
           ],
@@ -2048,7 +2049,8 @@ let%expect_test _ =
             { "`Tag": { "`Author": "Foo" } },
             {
               "`List": [
-                "`Unordered", [ [ { "`Paragraph": [ { "`Word": "bar" } ] } ] ]
+                "`Unordered",
+                [ [ { "`Paragraph": [ { "`Word": "bar" } ] } ] ]
               ]
             }
           ],
@@ -2083,7 +2085,8 @@ let%expect_test _ =
         {|
         {
           "value": [
-            { "`Tag": { "`Author": "Foo" } }, { "`Tag": { "`Author": "Bar" } }
+            { "`Tag": { "`Author": "Foo" } },
+            { "`Tag": { "`Author": "Bar" } }
           ],
           "warnings": []
         } |}]
@@ -2094,7 +2097,8 @@ let%expect_test _ =
         {|
         {
           "value": [
-            { "`Tag": { "`Author": "Foo" } }, { "`Tag": { "`Author": "Bar" } }
+            { "`Tag": { "`Author": "Foo" } },
+            { "`Tag": { "`Author": "Bar" } }
           ],
           "warnings": []
         } |}]
@@ -2198,7 +2202,8 @@ let%expect_test _ =
           "value": [
             {
               "`List": [
-                "`Unordered", [ [ { "`Paragraph": [ { "`Word": "foo" } ] } ] ]
+                "`Unordered",
+                [ [ { "`Paragraph": [ { "`Word": "foo" } ] } ] ]
               ]
             },
             { "`Tag": { "`Author": "Bar" } }
@@ -2220,7 +2225,9 @@ let%expect_test _ =
                     { "`Paragraph": [ { "`Word": "foo" }, "`Space" ] },
                     {
                       "`Paragraph": [
-                        { "`Word": "@author" }, "`Space", { "`Word": " Bar" }
+                        { "`Word": "@author" },
+                        "`Space",
+                        { "`Word": " Bar" }
                       ]
                     }
                   ]
@@ -2246,7 +2253,9 @@ let%expect_test _ =
                   [
                     {
                       "`Paragraph": [
-                        { "`Word": "@author" }, "`Space", { "`Word": " Foo" }
+                        { "`Word": "@author" },
+                        "`Space",
+                        { "`Word": " Foo" }
                       ]
                     }
                   ]
@@ -2273,7 +2282,9 @@ let%expect_test _ =
                     { "`Paragraph": [ { "`Word": "foo" }, "`Space" ] },
                     {
                       "`Paragraph": [
-                        { "`Word": "@author" }, "`Space", { "`Word": " Bar}}" }
+                        { "`Word": "@author" },
+                        "`Space",
+                        { "`Word": " Bar}}" }
                       ]
                     }
                   ]
@@ -2301,7 +2312,9 @@ let%expect_test _ =
                   [
                     {
                       "`Paragraph": [
-                        { "`Word": "@author" }, "`Space", { "`Word": " Foo}}" }
+                        { "`Word": "@author" },
+                        "`Space",
+                        { "`Word": " Foo}}" }
                       ]
                     }
                   ]
@@ -2330,7 +2343,9 @@ let%expect_test _ =
                     { "`Paragraph": [ { "`Word": "foo" } ] },
                     {
                       "`Paragraph": [
-                        { "`Word": "@author" }, "`Space", { "`Word": " Bar}}" }
+                        { "`Word": "@author" },
+                        "`Space",
+                        { "`Word": " Bar}}" }
                       ]
                     }
                   ]
@@ -2376,7 +2391,8 @@ let%expect_test _ =
         {|
         {
           "value": [
-            { "`Code_block": [ "None", "foo" ] }, { "`Tag": { "`Author": "Bar" } }
+            { "`Code_block": [ "None", "foo" ] },
+            { "`Tag": { "`Author": "Bar" } }
           ],
           "warnings": [
             "File \"f.ml\", line 1, characters 8-19:\n'@author' should begin on its own line."
@@ -2422,7 +2438,8 @@ let%expect_test _ =
           "value": [
             {
               "`List": [
-                "`Unordered", [ [ { "`Paragraph": [ { "`Word": "foo" } ] } ] ]
+                "`Unordered",
+                [ [ { "`Paragraph": [ { "`Word": "foo" } ] } ] ]
               ]
             },
             { "`Tag": { "`Author": "Bar" } }
@@ -2444,7 +2461,8 @@ let%expect_test _ =
         {|
         {
           "value": [
-            { "`Tag": { "`Author": "Foo" } }, { "`Tag": { "`Author": "Bar" } }
+            { "`Tag": { "`Author": "Foo" } },
+            { "`Tag": { "`Author": "Bar" } }
           ],
           "warnings": []
         } |}]
@@ -2474,7 +2492,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Dot": [ { "`Root": [ "foo", "`TUnknown" ] }, "bar" ] }, []
+                    { "`Dot": [ { "`Root": [ "foo", "`TUnknown" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -2749,7 +2768,8 @@ let%expect_test _ =
                       "`Class": [
                         {
                           "`Module": [
-                            { "`Root": [ "Bar", "`TModuleType" ] }, "Moo"
+                            { "`Root": [ "Bar", "`TModuleType" ] },
+                            "Moo"
                           ]
                         },
                         "There"
@@ -2898,7 +2918,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Type": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] }, []
+                    { "`Type": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -2921,7 +2942,8 @@ let%expect_test _ =
                       "`Type": [
                         {
                           "`ModuleType": [
-                            { "`Root": [ "Foo", "`TModuleType" ] }, "Bar"
+                            { "`Root": [ "Foo", "`TModuleType" ] },
+                            "Bar"
                           ]
                         },
                         "baz"
@@ -3056,7 +3078,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Dot": [ { "`Root": [ "foo", "`TUnknown" ] }, "bar" ] }, []
+                    { "`Dot": [ { "`Root": [ "foo", "`TUnknown" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -3075,7 +3098,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Dot": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] }, []
+                    { "`Dot": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -3094,7 +3118,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Dot": [ { "`Root": [ "Foo", "`TModuleType" ] }, "bar" ] }, []
+                    { "`Dot": [ { "`Root": [ "Foo", "`TModuleType" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -3113,7 +3138,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Dot": [ { "`Root": [ "foo", "`TType" ] }, "bar" ] }, []
+                    { "`Dot": [ { "`Root": [ "foo", "`TType" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -3132,7 +3158,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Dot": [ { "`Root": [ "foo", "`TClass" ] }, "bar" ] }, []
+                    { "`Dot": [ { "`Root": [ "foo", "`TClass" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -3151,7 +3178,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Dot": [ { "`Root": [ "foo", "`TClassType" ] }, "bar" ] }, []
+                    { "`Dot": [ { "`Root": [ "foo", "`TClassType" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -3170,7 +3198,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Dot": [ { "`Root": [ "foo", "`TPage" ] }, "bar" ] }, []
+                    { "`Dot": [ { "`Root": [ "foo", "`TPage" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -3333,7 +3362,8 @@ let%expect_test _ =
                       "`Dot": [
                         {
                           "`ModuleType": [
-                            { "`Root": [ "Foo", "`TUnknown" ] }, "Bar"
+                            { "`Root": [ "Foo", "`TUnknown" ] },
+                            "Bar"
                           ]
                         },
                         "baz"
@@ -3412,7 +3442,8 @@ let%expect_test _ =
                       "`Dot": [
                         {
                           "`ClassType": [
-                            { "`Root": [ "foo", "`TUnknown" ] }, "bar"
+                            { "`Root": [ "foo", "`TUnknown" ] },
+                            "bar"
                           ]
                         },
                         "baz"
@@ -3555,7 +3586,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Module": [ { "`Root": [ "Foo", "`TUnknown" ] }, "Bar" ] }, []
+                    { "`Module": [ { "`Root": [ "Foo", "`TUnknown" ] }, "Bar" ] },
+                    []
                   ]
                 }
               ]
@@ -3574,7 +3606,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Module": [ { "`Root": [ "Foo", "`TModule" ] }, "Bar" ] }, []
+                    { "`Module": [ { "`Root": [ "Foo", "`TModule" ] }, "Bar" ] },
+                    []
                   ]
                 }
               ]
@@ -3815,7 +3848,8 @@ let%expect_test _ =
                       "`Module": [
                         {
                           "`ModuleType": [
-                            { "`Root": [ "Foo", "`TUnknown" ] }, "Bar"
+                            { "`Root": [ "Foo", "`TUnknown" ] },
+                            "Bar"
                           ]
                         },
                         "Baz"
@@ -4042,7 +4076,8 @@ let%expect_test _ =
                   "`Reference": [
                     {
                       "`ModuleType": [
-                        { "`Root": [ "Foo", "`TModuleType" ] }, "Bar"
+                        { "`Root": [ "Foo", "`TModuleType" ] },
+                        "Bar"
                       ]
                     },
                     []
@@ -4090,7 +4125,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Type": [ { "`Root": [ "Foo", "`TUnknown" ] }, "bar" ] }, []
+                    { "`Type": [ { "`Root": [ "Foo", "`TUnknown" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -4109,7 +4145,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Type": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] }, []
+                    { "`Type": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -4646,7 +4683,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Field": [ { "`Root": [ "foo", "`TUnknown" ] }, "bar" ] }, []
+                    { "`Field": [ { "`Root": [ "foo", "`TUnknown" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -4665,7 +4703,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Field": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] }, []
+                    { "`Field": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -4704,7 +4743,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Field": [ { "`Root": [ "foo", "`TType" ] }, "bar" ] }, []
+                    { "`Field": [ { "`Root": [ "foo", "`TType" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -4723,7 +4763,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Field": [ { "`Root": [ "foo", "`TClass" ] }, "bar" ] }, []
+                    { "`Field": [ { "`Root": [ "foo", "`TClass" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -4925,7 +4966,8 @@ let%expect_test _ =
                       "`Field": [
                         {
                           "`ModuleType": [
-                            { "`Root": [ "Foo", "`TUnknown" ] }, "Bar"
+                            { "`Root": [ "Foo", "`TUnknown" ] },
+                            "Bar"
                           ]
                         },
                         "baz"
@@ -5004,7 +5046,8 @@ let%expect_test _ =
                       "`Field": [
                         {
                           "`ClassType": [
-                            { "`Root": [ "Foo", "`TUnknown" ] }, "bar"
+                            { "`Root": [ "Foo", "`TUnknown" ] },
+                            "bar"
                           ]
                         },
                         "baz"
@@ -5282,7 +5325,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Value": [ { "`Root": [ "Foo", "`TUnknown" ] }, "bar" ] }, []
+                    { "`Value": [ { "`Root": [ "Foo", "`TUnknown" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -5301,7 +5345,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Value": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] }, []
+                    { "`Value": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -5342,7 +5387,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Class": [ { "`Root": [ "Foo", "`TUnknown" ] }, "bar" ] }, []
+                    { "`Class": [ { "`Root": [ "Foo", "`TUnknown" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -5361,7 +5407,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Class": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] }, []
+                    { "`Class": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -5479,7 +5526,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Method": [ { "`Root": [ "foo", "`TUnknown" ] }, "bar" ] }, []
+                    { "`Method": [ { "`Root": [ "foo", "`TUnknown" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -5498,7 +5546,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Method": [ { "`Root": [ "foo", "`TClass" ] }, "bar" ] }, []
+                    { "`Method": [ { "`Root": [ "foo", "`TClass" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -5741,7 +5790,8 @@ let%expect_test _ =
                       "`Method": [
                         {
                           "`ClassType": [
-                            { "`Root": [ "Foo", "`TUnknown" ] }, "bar"
+                            { "`Root": [ "Foo", "`TUnknown" ] },
+                            "bar"
                           ]
                         },
                         "baz"
@@ -5928,7 +5978,8 @@ let%expect_test _ =
                   "`Reference": [
                     {
                       "`InstanceVariable": [
-                        { "`Root": [ "Foo", "`TUnknown" ] }, "bar"
+                        { "`Root": [ "Foo", "`TUnknown" ] },
+                        "bar"
                       ]
                     },
                     []
@@ -5967,7 +6018,8 @@ let%expect_test _ =
                   "`Reference": [
                     {
                       "`InstanceVariable": [
-                        { "`Root": [ "foo", "`TClass" ] }, "bar"
+                        { "`Root": [ "foo", "`TClass" ] },
+                        "bar"
                       ]
                     },
                     []
@@ -6002,7 +6054,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Label": [ { "`Root": [ "Foo", "`TUnknown" ] }, "bar" ] }, []
+                    { "`Label": [ { "`Root": [ "Foo", "`TUnknown" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -6021,7 +6074,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Label": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] }, []
+                    { "`Label": [ { "`Root": [ "Foo", "`TModule" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -6040,7 +6094,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Label": [ { "`Root": [ "foo", "`TClass" ] }, "bar" ] }, []
+                    { "`Label": [ { "`Root": [ "foo", "`TClass" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -6059,7 +6114,8 @@ let%expect_test _ =
               "`Paragraph": [
                 {
                   "`Reference": [
-                    { "`Label": [ { "`Root": [ "foo", "`TPage" ] }, "bar" ] }, []
+                    { "`Label": [ { "`Root": [ "foo", "`TPage" ] }, "bar" ] },
+                    []
                   ]
                 }
               ]
@@ -6219,7 +6275,8 @@ let%expect_test _ =
                       "`Field": [
                         {
                           "`ModuleType": [
-                            { "`Root": [ "Foo", "`TModule" ] }, "Bar"
+                            { "`Root": [ "Foo", "`TModule" ] },
+                            "Bar"
                           ]
                         },
                         "baz"
@@ -6473,7 +6530,8 @@ let%expect_test _ =
                       "`Dot": [
                         {
                           "`ModuleType": [
-                            { "`Root": [ "Foo", "`TModule" ] }, "Bar"
+                            { "`Root": [ "Foo", "`TModule" ] },
+                            "Bar"
                           ]
                         },
                         "baz"
@@ -6836,7 +6894,8 @@ let%expect_test _ =
                       "`Type": [
                         {
                           "`ModuleType": [
-                            { "`Root": [ "Foo", "`TModule" ] }, "Bar"
+                            { "`Root": [ "Foo", "`TModule" ] },
+                            "Bar"
                           ]
                         },
                         "baz"

@@ -77,7 +77,7 @@ val p : int t -> unit = <fun>
             Br (5, Lf, Lf)),
       Br (3, Lf, Lf)));;
 - : int t =
-]@
+][
 {%html: <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
@@ -217,4 +217,5 @@ val p : int t -> unit = <fun>
 </g>
 </g>
 </svg>
- %}}
+ %}
+]}

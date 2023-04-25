@@ -16,7 +16,7 @@ let ooi_deps { vimpl; sctx; dir; obj_dir; modules = _; stdlib = _; sandbox = _ }
   let write, read =
     let ctx = Super_context.context sctx in
     let unit =
-      Obj_dir.Module.cm_file_exn obj_dir m ~kind:cm_kind |> Path.build
+      Obj_dir.Module.cm_file_exn obj_dir m ~kind:(Ocaml cm_kind) |> Path.build
     in
     let sandbox =
       if dune_version >= (3, 3) then Some Sandbox_config.needs_sandboxing
@@ -43,17 +43,23 @@ let ooi_deps { vimpl; sctx; dir; obj_dir; modules = _; stdlib = _; sandbox = _ }
   in
   read
 
-let deps_of_module md ~ml_kind m =
+let deps_of_module ({ modules; _ } as md) ~ml_kind m =
   match Module.kind m with
   | Wrapped_compat ->
-    let modules = md.modules in
     let interface_module =
       match Modules.lib_interface modules with
       | Some m -> m
       | None -> Modules.compat_for_exn modules m
     in
-    Action_builder.return (List.singleton interface_module) |> Memo.return
-  | _ -> Ocamldep.deps_of md ~ml_kind m
+    List.singleton interface_module |> Action_builder.return |> Memo.return
+  | _ -> (
+    let+ deps = Ocamldep.deps_of md ~ml_kind m in
+    match Modules.alias_for modules m with
+    | [] -> deps
+    | aliases ->
+      let open Action_builder.O in
+      let+ deps = deps in
+      aliases @ deps)
 
 let deps_of_vlib_module ({ obj_dir; vimpl; dir; sctx; _ } as md) ~ml_kind m =
   let vimpl = Option.value_exn vimpl in
@@ -82,8 +88,11 @@ let deps_of_vlib_module ({ obj_dir; vimpl; dir; sctx; _ } as md) ~ml_kind m =
 let rec deps_of md ~ml_kind (m : Modules.Sourced_module.t) =
   let is_alias =
     match m with
-    | Imported_from_vlib m | Normal m -> Module.kind m = Alias
     | Impl_of_virtual_module _ -> false
+    | Imported_from_vlib m | Normal m -> (
+      match Module.kind m with
+      | Alias _ -> true
+      | _ -> false)
   in
   if is_alias then Memo.return (Action_builder.return [])
   else
@@ -102,6 +111,23 @@ let rec deps_of md ~ml_kind (m : Modules.Sourced_module.t) =
       match ml_kind with
       | Intf -> Imported_from_vlib m
       | Impl -> Normal m)
+
+(** Tests whether a set of modules is a singleton *)
+let has_single_file modules = Option.is_some @@ Modules.as_singleton modules
+
+let immediate_deps_of unit modules obj_dir ml_kind =
+  match Module.kind unit with
+  | Alias _ -> Action_builder.return []
+  | Wrapped_compat ->
+    let interface_module =
+      match Modules.lib_interface modules with
+      | Some m -> m
+      | None -> Modules.compat_for_exn modules unit
+    in
+    List.singleton interface_module |> Action_builder.return
+  | _ ->
+    if has_single_file modules then Action_builder.return []
+    else Ocamldep.read_immediate_deps_of ~obj_dir ~modules ~ml_kind unit
 
 let dict_of_func_concurrently f =
   let+ impl = f ~ml_kind:Ml_kind.Impl

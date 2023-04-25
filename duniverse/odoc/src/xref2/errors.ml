@@ -27,7 +27,6 @@ module Tools_error = struct
     [ `Local of
       Env.t * Ident.path_module
       (* Internal error: Found local path during lookup *)
-    | `Unresolved_apply (* [`Apply] argument is not [`Resolved] *)
     | `Find_failure
     | (* Internal error: the module was not found in the parent signature *)
       `Lookup_failure of
@@ -136,7 +135,6 @@ module Tools_error = struct
     | `LocalMT (_, id) -> Format.fprintf fmt "Local id found: %a" Ident.fmt id
     | `Local (_, id) -> Format.fprintf fmt "Local id found: %a" Ident.fmt id
     | `LocalType (_, id) -> Format.fprintf fmt "Local id found: %a" Ident.fmt id
-    | `Unresolved_apply -> Format.fprintf fmt "Unresolved apply"
     | `Find_failure -> Format.fprintf fmt "Find failure"
     | `Lookup_failure m ->
         Format.fprintf fmt "Lookup failure (module): %a"
@@ -189,7 +187,6 @@ let is_unexpanded_module_type_of =
     | `Local _ -> false
     | `Find_failure -> false
     | `Lookup_failure _ -> false
-    | `Unresolved_apply -> false
     | `Lookup_failure_root _ -> false
     | `Parent p -> inner (p :> any)
     | `Parent_sig p -> inner (p :> any)
@@ -292,7 +289,8 @@ type what =
   | `With_type of Cfrag.type_
   | `Module_type_expr of Component.ModuleType.expr
   | `Module_type_u_expr of Component.ModuleType.U.expr
-  | `Child of Reference.t
+  | `Child_module of string
+  | `Child_page of string
   | `Reference of Reference.t ]
 
 let report ~(what : what) ?tools_error action =
@@ -339,7 +337,8 @@ let report ~(what : what) ?tools_error action =
         r "module type expression" module_type_expr cexpr
     | `Module_type_u_expr cexpr ->
         r "module type u expression" u_module_type_expr cexpr
-    | `Child rf -> r "child reference" model_reference rf
+    | `Child_module rf -> r "child module" Astring.String.pp rf
+    | `Child_page rf -> r "child page" Astring.String.pp rf
     | `Reference ref -> r "reference" model_reference ref
   in
   match kind_of_error ~what tools_error with

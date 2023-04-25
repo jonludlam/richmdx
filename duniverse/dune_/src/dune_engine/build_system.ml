@@ -6,24 +6,39 @@ module Progress = struct
   type t =
     { number_of_rules_discovered : int
     ; number_of_rules_executed : int
+    ; number_of_rules_failed : int
     }
 
-  let equal { number_of_rules_discovered; number_of_rules_executed } t =
+  let equal
+      { number_of_rules_discovered
+      ; number_of_rules_executed
+      ; number_of_rules_failed
+      } t =
     Int.equal number_of_rules_discovered t.number_of_rules_discovered
     && Int.equal number_of_rules_executed t.number_of_rules_executed
+    && Int.equal number_of_rules_failed t.number_of_rules_failed
 
-  let complete t = t.number_of_rules_executed
-
-  let remaining t = t.number_of_rules_discovered - t.number_of_rules_executed
+  let init =
+    { number_of_rules_discovered = 0
+    ; number_of_rules_executed = 0
+    ; number_of_rules_failed = 0
+    }
 end
 
 module Error = struct
   module Id = Id.Make ()
 
   type t =
-    { exn : Exn_with_backtrace.t
-    ; id : Id.t
-    }
+    | Exn of
+        { id : Id.t
+        ; exn : Exn_with_backtrace.t
+        }
+    | Diagnostic of
+        { id : Id.t
+        ; diagnostic : Compound_user_error.t
+        ; dir : Path.t option
+        ; promotion : Diff_promotion.Annot.t option
+        }
 
   module Event = struct
     type nonrec t =
@@ -31,38 +46,49 @@ module Error = struct
       | Remove of t
   end
 
-  let create ~exn = { exn; id = Id.gen () }
-
-  let id t = t.id
-
-  let promotion t =
-    let e =
-      match t.exn.exn with
-      | Memo.Error.E e -> Memo.Error.get e
-      | e -> e
+  let of_exn (exn : Exn_with_backtrace.t) =
+    let exn =
+      match exn.exn with
+      | Memo.Error.E e -> { exn with exn = Memo.Error.get e }
+      | _ -> exn
     in
-    match e with
-    | User_error.E msg ->
-      User_message.Annots.find msg.annots Diff_promotion.Annot.annot
-    | _ -> None
-
-  let info (t : t) =
-    let e =
-      match t.exn.exn with
-      | Memo.Error.E e -> Memo.Error.get e
-      | e -> e
-    in
-    match e with
-    | User_error.E msg -> (
+    match exn.exn with
+    | User_error.E main -> (
       let dir =
-        User_message.Annots.find msg.annots Process.with_directory_annot
+        User_message.Annots.find main.annots Process.with_directory_annot
       in
-      match User_message.Annots.find msg.annots Compound_user_error.annot with
-      | None -> (msg, [], dir)
-      | Some { main; related } -> (main, related, dir))
-    | e ->
-      (* CR-someday jeremiedimino: Use [Report_error.get_user_message] here. *)
-      (User_message.make [ Pp.text (Printexc.to_string e) ], [], None)
+      let promotion =
+        User_message.Annots.find main.annots Diff_promotion.Annot.annot
+      in
+      match User_message.Annots.find main.annots Compound_user_error.annot with
+      | None ->
+        [ Diagnostic
+            { dir
+            ; id = Id.gen ()
+            ; diagnostic = Compound_user_error.make ~main ~related:[]
+            ; promotion
+            }
+        ]
+      | Some diagnostics ->
+        List.map diagnostics ~f:(fun diagnostic ->
+            Diagnostic { id = Id.gen (); diagnostic; dir; promotion }))
+    | _ -> [ Exn { id = Id.gen (); exn } ]
+
+  let promotion = function
+    | Exn _ -> None
+    | Diagnostic d -> d.promotion
+
+  let id = function
+    | Exn d -> d.id
+    | Diagnostic d -> d.id
+
+  let dir = function
+    | Exn _ -> None
+    | Diagnostic d -> d.dir
+
+  let description = function
+    | Exn e -> `Exn e.exn
+    | Diagnostic d -> `Diagnostic d.diagnostic
 
   module Set : sig
     type error := t
@@ -102,9 +128,9 @@ module Error = struct
         true (* only possible when both sets are empty *)
       | Some x, Some y -> (
         match (x, y) with
-        | Add x, Add y -> Id.equal x.id y.id
+        | Add x, Add y -> Id.equal (id x) (id y)
         | Add _, _ -> false
-        | Remove x, Remove y -> Id.equal x.id y.id
+        | Remove x, Remove y -> Id.equal (id x) (id y)
         | Remove _, _ -> false)
       | Some _, None | None, Some _ -> false
 
@@ -150,45 +176,36 @@ module State = struct
   (* This mutex ensures that at most one [run] is running in parallel. *)
   let build_mutex = Fiber.Mutex.create ()
 
-  let progress_init =
-    { Progress.number_of_rules_discovered = 0; number_of_rules_executed = 0 }
-
-  let reset_progress () = Svar.write t (Building progress_init)
+  let reset_progress () = Svar.write t (Building Progress.init)
 
   let set what = Svar.write t what
 
-  let incr_rule_done_exn () =
+  let update_build_progress_exn ~f =
     let current = Svar.read t in
     match current with
-    | Building current ->
-      Svar.write t
-        (Building
-           { current with
-             number_of_rules_executed = current.number_of_rules_executed + 1
-           })
+    | Building current -> Svar.write t @@ Building (f current)
     | _ -> assert false
 
+  let incr_rule_done_exn () =
+    update_build_progress_exn ~f:(fun p ->
+        { p with number_of_rules_executed = p.number_of_rules_executed + 1 })
+
   let start_rule_exn () =
-    let current = Svar.read t in
-    match current with
-    | Building current ->
-      Svar.write t
-        (Building
-           { current with
-             number_of_rules_discovered = current.number_of_rules_discovered + 1
-           })
-    | _ -> assert false
+    update_build_progress_exn ~f:(fun p ->
+        { p with number_of_rules_discovered = p.number_of_rules_discovered + 1 })
 
   let errors = Svar.create Error.Set.empty
 
   let reset_errors () = Svar.write errors Error.Set.empty
 
-  let add_error error =
-    let set =
-      let set = Svar.read errors in
-      Error.Set.add set error
+  let add_errors error_list =
+    let open Fiber.O in
+    let* () =
+      update_build_progress_exn ~f:(fun p ->
+          { p with number_of_rules_failed = p.number_of_rules_failed + 1 })
     in
-    Svar.write errors set
+    List.fold_left error_list ~init:(Svar.read errors) ~f:Error.Set.add
+    |> Svar.write errors
 end
 
 let rec with_locks ~f = function
@@ -410,11 +427,13 @@ end = struct
         } =
       action
     in
+    let* dune_stats = Scheduler.stats () in
     let sandbox =
       match sandbox_mode with
       | Some mode ->
         Some
           (Sandbox.create ~mode ~deps ~rule_dir:dir ~rule_loc:loc ~rule_digest
+             ~dune_stats
              ~expand_aliases:
                (Execution_parameters.expand_aliases_in_sandbox
                   execution_parameters))
@@ -427,18 +446,7 @@ end = struct
     in
     let action =
       match sandbox with
-      | None ->
-        (* CR-someday amokhov: It may be possible to support directory targets
-           without sandboxing. We just need to make sure we clean up all stale
-           directory targets before running the rule and then we can discover
-           all created files right in the build directory. *)
-        if not (Path.Build.Set.is_empty targets.dirs) then
-          User_error.raise ~loc
-            [ Pp.text "Rules with directory targets must be sandboxed." ]
-            ~hints:
-              [ Pp.text "Add (sandbox always) to the (deps ) field of the rule."
-              ];
-        action
+      | None -> action
       | Some sandbox -> Action.sandbox action sandbox
     in
     let action =
@@ -475,9 +483,7 @@ end = struct
           let produced_targets =
             match sandbox with
             | None ->
-              (* Directory targets are not allowed for non-sandboxed actions, so
-                 the call below should not raise. *)
-              Targets.Produced.of_validated_files_exn targets
+              Targets.Produced.produced_after_rule_executed_exn ~loc targets
             | Some sandbox ->
               (* The stamp file for anonymous actions is always created outside
                  the sandbox, so we can't move it. *)
@@ -507,6 +513,19 @@ end = struct
     | Promote promote, (Some Automatically | None) ->
       Target_promotion.promote ~dir ~targets ~promote ~promote_source
 
+  let execution_parameters_of_dir =
+    let f path =
+      let+ dir = Source_tree.nearest_dir path
+      and+ ep = Execution_parameters.default in
+      Dune_project.update_execution_parameters (Source_tree.Dir.project dir) ep
+    in
+    let memo =
+      Memo.create "execution-parameters-of-dir"
+        ~input:(module Path.Source)
+        ~cutoff:Execution_parameters.equal f
+    in
+    Memo.exec memo
+
   let execute_rule_impl ~rule_kind rule =
     let { Rule.id = _; targets; dir; context; mode; action; info = _; loc } =
       rule
@@ -521,7 +540,7 @@ end = struct
       match Dpath.Target_dir.of_target dir with
       | Regular (With_context (_, dir))
       | Anonymous_action (With_context (_, dir)) ->
-        Source_tree.execution_parameters_of_dir dir
+        execution_parameters_of_dir dir
       | _ -> Execution_parameters.default
     in
     (* Note: we do not run the below in parallel with the above: if we fail to
@@ -1126,8 +1145,8 @@ let report_early_exn exn =
   | true -> Fiber.return ()
   | false -> (
     let open Fiber.O in
-    let error = Error.create ~exn in
-    let+ () = State.add_error error in
+    let errors = Error.of_exn exn in
+    let+ () = State.add_errors errors in
     match !Clflags.report_errors_config with
     | Early | Twice -> Dune_util.Report_error.report exn
     | Deterministic -> ())
@@ -1174,8 +1193,12 @@ let run_exn f =
   | Ok res -> res
   | Error `Already_reported -> raise Dune_util.Report_error.Already_reported
 
+let build_file p =
+  let+ (_ : Digest.t) = build_file p in
+  ()
+
 let read_file p ~f =
-  let+ _digest = build_file p in
+  let+ () = build_file p in
   f p
 
 let state = State.t

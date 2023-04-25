@@ -144,7 +144,7 @@ module Complicated_2 : sig
   module App : functor
     (T : Type)
     (F : functor (_ : Type) -> Type)
-    (M : F(T).T)
+    (_ : F(T).T)
     -> F(T).T
 
   module Bar : sig

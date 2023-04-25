@@ -4,7 +4,7 @@ let link_page ~resolver ~filename page =
   let env = Resolver.build_env_for_page resolver page in
   Odoc_xref2.Link.resolve_page ~filename env page
 
-let link_unit ~resolver ~filename m =
+let link_unit ~resolver ~filename m impl_shape =
   let open Odoc_model in
   let open Lang.Compilation_unit in
   let m =
@@ -16,7 +16,7 @@ let link_unit ~resolver ~filename m =
       }
     else m
   in
-  let env = Resolver.build_env_for_unit resolver ~linking:true m in
+  let env = Resolver.build_link_env_for_unit resolver m impl_shape in
   Odoc_xref2.Link.link ~filename env m
 
 (** [~input_warnings] are the warnings stored in the input file *)
@@ -32,15 +32,18 @@ let from_odoc ~resolver ~warnings_options input output =
   Odoc_file.load input >>= fun unit ->
   let input_warnings = unit.Odoc_file.warnings in
   match unit.content with
+  | Source_tree_content st ->
+      Odoc_file.save_source_tree output ~warnings:[] st;
+      Ok (`Source_tree st)
   | Page_content page ->
       link_page ~resolver ~filename page
       |> handle_warnings ~input_warnings ~warnings_options
       >>= fun (page, warnings) ->
       Odoc_file.save_page output ~warnings page;
       Ok (`Page page)
-  | Unit_content m ->
-      link_unit ~resolver ~filename m
+  | Unit_content (m, shape) ->
+      link_unit ~resolver ~filename m shape
       |> handle_warnings ~input_warnings ~warnings_options
       >>= fun (m, warnings) ->
-      Odoc_file.save_unit output ~warnings m;
+      Odoc_file.save_unit output ~warnings (m, shape);
       Ok (`Module m)

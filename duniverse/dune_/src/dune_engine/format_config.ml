@@ -111,9 +111,10 @@ let dune2_record_syntax =
 let dune2_dec =
   let+ loc = loc
   and+ enabled_for =
-    keyword "disabled"
-    >>> return (Enabled_for.Only Language.Set.empty)
-    <|> fields dune2_record_syntax
+    peek >>= function
+    | None | Some (List _) -> fields dune2_record_syntax
+    | Some _ ->
+      keyword "disabled" >>> return (Enabled_for.Only Language.Set.empty)
   in
   { loc; enabled_for }
 

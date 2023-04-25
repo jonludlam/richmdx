@@ -1,0 +1,283 @@
+{0 Supervision 4}
+
+{1 Lecture 10}
+
+{2 Exercise 10.1}
+
+{e Suppose that we have an implementation of queues, based on binary trees, such
+that each operation takes logarithmic time in the worst case. Outline the
+advantages and drawbacks of such an implementation compared with one presented
+above.}
+
+The chief benefit is that of predictability. The functional queue presented in
+the lectures based on the two lists has {m O(1)} complexity amortized, but the
+occasional operation will be {m O(n)}. The binary tree has worst-case
+complexity of {m O(log n)} and therefore no operation will suddely be much
+slower than any other. The downside, of course, is that {m O(log n)} is slower
+overall.
+
+{2 Exercise 10.2}
+
+{e The traditional way to implement queues uses a fixed-length array. Two indices 
+into the array indicate the start and end of the queue, which wraps around from
+the end of the array to the start. How appropriate is such a data structure for
+implementing breadth-first search?}
+
+The benefit here is again in predictability. Each operation will be {m O(1)}, and
+no individual operation will be longer (ie., the worst-case operation complexity
+is {m O(1)}). The downside is that the array must be allocated in advance and will
+have a fixed maximum size, so it won't be possible to use it for arbitrarily large
+trees.
+
+{2 Exercise 10.3}
+
+{e Write a version of the function [breadth] using a nested [let] construction rather than
+[match].}
+
+We need the tree type declaration and the queue implementation:
+
+{@ocaml[
+type 'a tree =
+  Lf
+| Br of 'a * 'a tree * 'a tree
+
+module Queue = struct
+    type 'a queue =
+    | Q of 'a list * 'a list
+
+    let norm = function
+    | Q ([], tls) -> Q (List.rev tls, [])
+    | q -> q
+
+    let qnull = function
+    | Q ([], []) -> true
+    | _ -> false
+
+    let enq (Q (hds, tls)) x = norm (Q (hds, x::tls))
+
+    exception Empty
+
+    let deq = function
+    | Q (x::hds, tls) -> norm (Q (hds, tls))
+    | _ -> raise Empty
+
+    let qempty = Q ([], [])
+
+    let qhd = function
+    | Q (x::_, _) -> x
+    | _ -> raise Empty
+end
+]}
+
+And the original implementation is:
+
+{@ocaml[
+let rec breadth q =
+  let open Queue in
+  if qnull q then []
+  else
+    match qhd q with
+    | Lf -> breadth (deq q)
+    | Br (v, t, u) -> v :: breadth (enq (enq (deq q) t) u)
+]}
+
+Not totally clear what the question was asking. One possible solution:
+
+{@ocaml[
+let rec breadth2 q =
+  let open Queue in
+  if qnull q then []
+  else
+    if qhd q = Lf
+    then breadth2 (deq q)
+    else 
+     let[@warning "-8"] 
+        (Br (v, t, u)) = qhd q in
+     v :: breadth (enq (enq (deq q) t) u)
+]}
+
+Another:
+
+{@ocaml[
+let rec breadth3 q =
+  let open Queue in
+  if qnull q then []
+  else
+    let h = qhd q in
+    let d = deq q in
+    let next = function
+      | Lf -> breadth3 d
+      | Br (v, t, u) -> v :: breadth3 (enq (enq d t) u)
+    in
+    next h
+]}
+
+{2 Exercise 10.4}
+
+{e Iterative deepening is inappropriate if {m b\approx 1}, where {m b} is the branching factor. What search
+strategy is appropriate in this case? }
+
+Probably breadth-first search. The queue will be small as the branching factor is ~1.
+
+{2 Exercise 10.5}
+
+{e Consider the following OCaml function. }
+
+{@ocaml[let next n = [2 * n; 2 * n + 1]]}
+
+{e If we regard it as representing a tree, where the subtrees are computed from the current label, what tree does [next 1] represent?}
+
+This is simply the binary tree where a breadth-first traversal returns [ [1;2;3;4;5;6;7...] ].
+
+
+{1 Lecture 11}
+
+{2 Exercise 11.1}
+
+{e Comment, with examples, on the differences between an [int ref list] and an [int list ref]}
+
+An [int list ref] is a mutable reference to a list. The whole list can be replaced atomically,
+but not any individual element. The length of the list can be changed.
+
+{@ocaml[
+let x = ref [1;2;3;4;5];;
+x := [6;7;8];;
+]}
+
+whereas an [int ref list] is an immutable list of mutable references. Individual elements may be
+altered but the list has to remain the same length.
+
+{@ocaml[
+let y = [ref 1; ref 2; ref 3; ref 4];;
+let z = List.hd y in z := 10;;
+]}
+
+{@ocaml[
+# y;;
+- : int ref list =
+[{contents = 10}; {contents = 2}; {contents = 3}; {contents = 4}]
+]}
+
+
+{2 Exercise 11.2}
+
+Write a version of function [power] (Lecture 1) using [while] instead of recursion.
+
+{@ocaml[
+let even n = n mod 2 = 0
+
+let power x n =
+  let x = ref x in
+  let n = ref n in
+  let res = ref 1.0 in
+  while (!n > 0) do
+    if even !n
+    then (x := !x *. !x; n := !n / 2)
+    else (res := !x *. !res; x := !x *. !x; n := !n / 2)
+  done;
+  !res;
+]}
+
+{@ocaml[
+# let test = power 2.0 22;;
+val test : float = 4194304.
+]}
+
+{2 Exercise 11.3}
+
+What is the effect of [while C1; B do C2; done]?
+
+It's equivalent to:
+
+{v
+C1;
+while B do
+  C2; C1
+done
+v}
+
+{2 Exercise 11.4}
+
+{@ocaml[
+let xr = ref 1.0
+let yr = ref 2.0
+
+let exchange () =
+    let x = !xr in
+    xr := !yr;
+    yr := x
+]}
+
+{@ocaml[
+# !xr;;
+- : float = 1.
+# !yr;;
+- : float = 2.
+# let _ = exchange ();;
+- : unit = ()
+# !xr;;
+- : float = 2.
+# !yr;;
+- : float = 1.
+]}
+
+{2 Exercise 11.5}
+
+{e Arrays of multiple dimensions are represented in OCaml by arrays of arrays. Write functions to}
+- {e (a) create an {m n\times n} identity matrix, given {m n}, and}
+- {e (b) to transpose an {m m\times n} matrix. Identity matrices have the following form:}
+
+{math
+\left( {
+\begin{array}{cccc}
+   1 & 0 &  \cdots  & 0  \\
+   0 & 1 &  \cdots  & 0  \\
+    \vdots  &  \vdots  &  \ddots  &  \vdots   \\
+   0 & 0 &  \cdots  & 1  \\
+ \end{array}
+ } \right)
+}
+
+
+{@ocaml[
+type matrix = float array array
+
+let identity n : matrix =
+    Array.init n (fun i ->
+        Array.init n (fun j ->
+            if i=j then 1.0 else 0.0))
+]}
+
+{@ocaml[
+# let _ = identity 5;;
+- : matrix =
+[|[|1.; 0.; 0.; 0.; 0.|]; [|0.; 1.; 0.; 0.; 0.|]; [|0.; 0.; 1.; 0.; 0.|];
+  [|0.; 0.; 0.; 1.; 0.|]; [|0.; 0.; 0.; 0.; 1.|]|]
+]}
+
+{@ocaml[
+let transpose m =
+    let n = Array.length m in
+    let n' = Array.length (m.(0)) in
+    assert (n=n');
+    for i=0 to n-1 do
+      for j=i+1 to n-1 do
+        let t = m.(i).(j) in
+        m.(i).(j) <- m.(j).(i);
+        m.(j).(i) <- t
+      done
+    done
+]}
+
+{@ocaml[
+# let test = [| [| 1.0; 2.0; 3.0 |]; [| 4.0; 5.0; 6.0 |]; [| 7.0; 8.0; 9.0 |] |];;
+val test : float array array =
+  [|[|1.; 2.; 3.|]; [|4.; 5.; 6.|]; [|7.; 8.; 9.|]|]
+# let _ = transpose test;;
+- : unit = ()
+# test;;
+- : float array array = [|[|1.; 4.; 7.|]; [|2.; 5.; 8.|]; [|3.; 6.; 9.|]|]
+]}
+
+
+

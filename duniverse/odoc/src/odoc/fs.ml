@@ -42,6 +42,7 @@ module File = struct
     | Result.Ok psuf -> Fpath.(normalize @@ (directory // psuf))
 
   let to_string = Fpath.to_string
+  let segs = Fpath.segs
 
   let of_string s =
     match Fpath.of_string s with
@@ -90,6 +91,8 @@ module File = struct
           let err = Printf.sprintf "%s: file too large (%d bytes)" file len in
           Result.Error (`Msg err)
     with Sys_error e -> Result.Error (`Msg e)
+
+  let exists file = Sys.file_exists (Fpath.to_string file)
 
   module Table = Hashtbl.Make (struct
     type nonrec t = t

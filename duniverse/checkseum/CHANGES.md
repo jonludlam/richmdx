@@ -1,3 +1,23 @@
+### v0.5.1 2023-04-11 Paris (France)
+
+- Fix regression on `adler32` (the OCaml version) introduced by #76 and spotted
+  by @balat (@dinosaure, #80). We advise the user to upgrade as soon as he/she
+  can `checkseum`. `checkseum.0.5.0` will be disabled with this release.
+- Fix the CI on Windows (@dinosaure, @MisterDA, #79)
+  See (mirage/bechamel#41 for more details)
+
+### v0.5.0 2023-02-23 Paris (France)
+
+- Fixup deprecations from `optint.0.3.0` (@tmcgilchrist, #76)
+- Fix C stubs on 32-bits machines (@dinosaure, #76)
+- Delete the old linking trick about MirageOS 3 (@dinosaure, #77)
+
+### v0.4.0 2022-09-30 Paris (France)
+
+- Support LLVM/clang with `__STDDEF_H` (@jonahbeckford, #71)
+- Fix docstring reference (@reynir, #72)
+- Add `{of,to}_int32` (@reynir, #73, @dinosaure, #74)
+
 ### v0.3.4 2022-06-07 Arles (France)
 
 - Add the support of Esperanto (@dinosaure, #69)

@@ -150,11 +150,7 @@ let leaf_inline_element :
       | Some target -> Location.same element (`Raw_markup (target, s)))
 
 type surrounding =
-  [ `Heading of
-    int
-    * string option
-    * Odoc_parser.Ast.inline_element Location_.with_location list
-  | `Link of
+  [ `Link of
     string * Odoc_parser.Ast.inline_element Location_.with_location list
   | `Reference of
     [ `Simple | `With_text ]
@@ -228,14 +224,14 @@ let rec nestable_block_element :
   match element with
   | { value = `Paragraph content; location } ->
       Location.at location (`Paragraph (inline_elements status content))
-  | { value = `Code_block (metadata, code, outputs); location } ->
+  | { value = `Code_block { meta; delimiter = _; content; output }; location } ->
       let lang_tag =
-        match metadata with
-        | Some ({ Location.value; _ }, _) -> Some value
+        match meta with
+        | Some ({ language = { value; _ }; _ }) -> Some value
         | None -> None
       in
-      let outputs = Option.map (List.map (nestable_block_element status)) outputs in
-      Location.at location (`Code_block (lang_tag, code, outputs))
+      let outputs = Option.map (List.map (nestable_block_element status)) output in
+      Location.at location (`Code_block (lang_tag, content, outputs))
   | { value = `Math_block s; location } -> Location.at location (`Math_block s)
   | { value = `Verbatim _; _ } as element -> element
   | { value = `Modules modules; location } ->
@@ -257,6 +253,7 @@ let rec nestable_block_element :
   | { value = `List (kind, _syntax, items); location } ->
       `List (kind, List.map (nestable_block_elements status) items)
       |> Location.at location
+  | { value = `Table _; location } -> Location.at location (`Verbatim "")
 
 and nestable_block_elements status elements =
   List.map (nestable_block_element status) elements
@@ -276,8 +273,17 @@ let tag :
       ok (`Deprecated (nestable_block_elements status content))
   | `Param (name, content) ->
       ok (`Param (name, nestable_block_elements status content))
-  | `Raise (name, content) ->
-      ok (`Raise (name, nestable_block_elements status content))
+  | `Raise (name, content) -> (
+      match Error.raise_warnings (Reference.parse location name) with
+      (* TODO: location for just name *)
+      | Result.Ok target ->
+          ok
+            (`Raise
+              (`Reference (target, []), nestable_block_elements status content))
+      | Result.Error error ->
+          Error.raise_warning error;
+          let placeholder = `Code_span name in
+          ok (`Raise (placeholder, nestable_block_elements status content)))
   | `Return content -> ok (`Return (nestable_block_elements status content))
   | `See (kind, target, content) ->
       ok (`See (kind, target, nestable_block_elements status content))
@@ -291,7 +297,8 @@ let tag :
 
    This must be done in the parser (i.e. early, not at HTML/other output
    generation time), so that the cross-referencer can see these anchors. *)
-let generate_heading_label : Comment.link_content -> string =
+let generate_heading_label : Comment.inline_element with_location list -> string
+    =
  fun content ->
   (* Code spans can contain spaces, so we need to replace them with hyphens. We
      also lowercase all the letters, for consistency with the rest of this
@@ -309,13 +316,14 @@ let generate_heading_label : Comment.link_content -> string =
     Bytes.unsafe_to_string result
   in
 
+  let strip_locs li = List.map (fun ele -> ele.Location.value) li in
   (* Perhaps this should be done using a [Buffer.t]; we can switch to that as
      needed. *)
   let rec scan_inline_elements anchor = function
     | [] -> anchor
     | element :: more ->
         let anchor =
-          match element.Location.value with
+          match (element : Comment.inline_element) with
           | `Space -> anchor ^ "-"
           | `Word w -> anchor ^ Astring.String.Ascii.lowercase w
           | `Code_span c | `Math_span c ->
@@ -324,11 +332,22 @@ let generate_heading_label : Comment.link_content -> string =
               (* TODO Perhaps having raw markup in a section heading should be an
                  error? *)
               anchor
-          | `Styled (_, content) -> scan_inline_elements anchor content
+          | `Styled (_, content) ->
+              content |> strip_locs |> scan_inline_elements anchor
+          | `Reference (_, content) ->
+              content |> strip_locs
+              |> List.map (fun (ele : Comment.non_link_inline_element) ->
+                     (ele :> Comment.inline_element))
+              |> scan_inline_elements anchor
+          | `Link (_, content) ->
+              content |> strip_locs
+              |> List.map (fun (ele : Comment.non_link_inline_element) ->
+                     (ele :> Comment.inline_element))
+              |> scan_inline_elements anchor
         in
         scan_inline_elements anchor more
   in
-  scan_inline_elements "" content
+  content |> List.map (fun ele -> ele.Location.value) |> scan_inline_elements ""
 
 let section_heading :
     status ->
@@ -339,11 +358,7 @@ let section_heading :
  fun status ~top_heading_level location heading ->
   let (`Heading (level, label, content)) = heading in
 
-  let text =
-    non_link_inline_elements status
-      ~surrounding:(heading :> surrounding)
-      content
-  in
+  let text = inline_elements status content in
 
   let heading_label_explicit, label =
     match label with
@@ -463,7 +478,7 @@ let strip_internal_tags ast : internal_tags_removed with_location list * _ =
       -> (
         let next tag = loop ({ wloc with value = tag } :: tags) ast' tl in
         match tag with
-        | (`Inline | `Open | `Closed) as tag -> next tag
+        | (`Inline | `Open | `Closed ) as tag -> next tag
         | `Canonical { Location.value = s; location = r_location } -> (
             match
               Error.raise_warnings (Reference.read_path_longident r_location s)
@@ -471,7 +486,8 @@ let strip_internal_tags ast : internal_tags_removed with_location list * _ =
             | Result.Ok path -> next (`Canonical path)
             | Result.Error e ->
                 Error.raise_warning e;
-                loop tags ast' tl))
+                loop tags ast' tl)
+        | `Hidden -> loop tags ast' tl)
     | ({
          value =
            `Tag #Ast.ocamldoc_tag | `Heading _ | #Ast.nestable_block_element;

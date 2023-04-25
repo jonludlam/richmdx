@@ -14,6 +14,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+module Ocaml_ident = Ident
+module Ocaml_env = Env
+
 open Names
 
 module Identifier = struct
@@ -48,6 +51,28 @@ module Identifier = struct
     | `Label (_, name) -> LabelName.to_string name
 
   let name : [< t_pv ] id -> string = fun n -> name_aux (n :> t)
+
+  let rec root id =
+    match id.iv with
+    | `Root _ as root -> Some { id with iv = root }
+    | `Module (parent, _) -> root (parent :> t)
+    | `Parameter (parent, _) -> root (parent :> t)
+    | `Result x -> root (x :> t)
+    | `ModuleType (parent, _) -> root (parent :> t)
+    | `Type (parent, _) -> root (parent :> t)
+    | `Constructor (parent, _) -> root (parent :> t)
+    | `Field (parent, _) -> root (parent :> t)
+    | `Extension (parent, _) -> root (parent :> t)
+    | `Exception (parent, _) -> root (parent :> t)
+    | `Value (parent, _) -> root (parent :> t)
+    | `Class (parent, _) -> root (parent :> t)
+    | `ClassType (parent, _) -> root (parent :> t)
+    | `Method (parent, _) -> root (parent :> t)
+    | `InstanceVariable (parent, _) -> root (parent :> t)
+    | `Label (parent, _) -> root (parent :> t)
+    | `Page _ | `LeafPage _ | `CoreType _ | `CoreException _ -> None
+
+  let root id = root (id :> t)
 
   let rec label_parent_aux =
     let open Paths_types.Identifier in
@@ -104,6 +129,20 @@ module Identifier = struct
     let hash = hash
 
     let compare = compare
+
+    let rec root = function
+      | { iv = `Root _; _ } as root -> root
+      | {
+          iv =
+            ( `ModuleType (parent, _)
+            | `Module (parent, _)
+            | `Parameter (parent, _) );
+          _;
+        } ->
+          root parent
+      | { iv = `Result x; _ } -> root x
+
+    let root id = root (id :> t)
   end
 
   module ClassSignature = struct
@@ -164,6 +203,8 @@ module Identifier = struct
     let hash = hash
 
     let compare = compare
+
+    let name { iv = `Root (_, name); _ } = ModuleName.to_string name
   end
 
   module Module = struct
@@ -176,6 +217,8 @@ module Identifier = struct
     let hash = hash
 
     let compare = compare
+
+    let root id = Signature.root (id :> Signature.t)
   end
 
   module FunctorParameter = struct
@@ -370,6 +413,26 @@ module Identifier = struct
     let compare = compare
   end
 
+  module SourceDir = struct
+    type t = Paths_types.Identifier.source_dir
+    type t_pv = Paths_types.Identifier.source_dir_pv
+    let equal = equal
+    let hash = hash
+    let compare = compare
+    let rec name = function
+      | { iv = `SourceDir (p, n); _ } -> name p ^ n ^ "/"
+      | { iv = `SourceRoot _; _ } -> "./"
+  end
+
+  module SourcePage = struct
+    type t = Paths_types.Identifier.source_page
+    type t_pv = Paths_types.Identifier.source_page_pv
+    let equal = equal
+    let hash = hash
+    let compare = compare
+    let name { iv = `SourcePage (p, name); _ } = SourceDir.name p ^ name
+  end
+
   module OdocId = struct
     type t = Paths_types.Identifier.odoc_id
 
@@ -393,6 +456,8 @@ module Identifier = struct
       let hash = hash
 
       let compare = compare
+
+      let root id = Signature.root (id :> Signature.t)
     end
 
     module ModuleType = struct
@@ -480,6 +545,33 @@ module Identifier = struct
         ContainerPage.t option * PageName.t ->
         [> `LeafPage of ContainerPage.t option * PageName.t ] id =
       mk_parent_opt PageName.to_string "lp" (fun (p, n) -> `LeafPage (p, n))
+
+    let source_page (container_page, path) =
+      let rec source_dir dir =
+        match dir with
+        | [] ->
+            mk_parent
+              (fun () -> "")
+              "sr"
+              (fun (p, ()) -> `SourceRoot p)
+              (container_page, ())
+        | a :: q ->
+            let parent = source_dir q in
+            mk_parent
+              (fun k -> k)
+              "sd"
+              (fun (p, dir) -> `SourceDir (p, dir))
+              (parent, a)
+      in
+      match List.rev path with
+      | [] -> assert false
+      | file :: dir ->
+          let parent = source_dir dir in
+          mk_parent
+            (fun x -> x)
+            "sp"
+            (fun (p, rp) -> `SourcePage (p, rp))
+            (parent, file)
 
     let root :
         ContainerPage.t option * ModuleName.t ->
@@ -695,6 +787,20 @@ module Path = struct
         | `Apply (m, _) -> r m
         | `Alias (dest, _src) -> r dest
         | `OpaqueModule m -> r m
+
+      let rec root : t -> string option = function
+        | `Identifier id -> (
+            match Identifier.root (id :> Identifier.t) with
+            | Some root -> Some (Identifier.name root)
+            | None -> None)
+        | `Subst (_, p)
+        | `Hidden p
+        | `Module (p, _)
+        | `Canonical (p, _)
+        | `Apply (p, _)
+        | `Alias (p, _)
+        | `OpaqueModule p ->
+            root p
     end
 
     module ModuleType = struct
@@ -754,10 +860,22 @@ module Path = struct
       | `CanonicalType (p, _) -> identifier (p :> t)
       | `OpaqueModule m -> identifier (m :> t)
       | `OpaqueModuleType mt -> identifier (mt :> t)
+
+    let is_hidden r = is_resolved_hidden ~weak_canonical_test:false r
   end
 
   module Module = struct
     type t = Paths_types.Path.module_
+
+    let rec root : t -> string option = function
+      | `Resolved r -> Resolved.Module.root r
+      | `Identifier (id, _) -> (
+          match Identifier.root (id :> Identifier.t) with
+          | Some root -> Some (Identifier.name root)
+          | None -> None)
+      | `Root s -> Some s
+      | `Forward _ -> None
+      | `Dot (p, _) | `Apply (p, _) -> root p
   end
 
   module ModuleType = struct

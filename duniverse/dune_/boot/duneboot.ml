@@ -947,7 +947,7 @@ let assemble_libraries { local_libraries; target = _, main; _ } =
         String.capitalize_ascii
           (Filename.chop_extension (Filename.basename main))
       in
-      (dir, Some namespace, false, None)
+      (dir, Some namespace, true (* enable (include_subdirs unqualified *), None)
     in
     local_libraries @ [ task_lib ]
   in
@@ -961,8 +961,7 @@ type status =
 let resolve_externals external_libraries =
   let external_libraries, external_includes =
     let convert = function
-      | "threads.posix" ->
-        ("threads" ^ Config.ocaml_archive_ext, [ "-I"; "+threads" ])
+      | "threads" -> ("threads" ^ Config.ocaml_archive_ext, [ "-I"; "+threads" ])
       | "unix" -> ("unix" ^ Config.ocaml_archive_ext, Config.unix_library_flags)
       | s -> fatal "unhandled external library %s" s
     in
@@ -990,7 +989,7 @@ let sort_files dependencies ~main =
 
 let common_build_args name ~external_includes ~external_libraries =
   List.concat
-    [ [ "-o"; Filename.concat ".." (name ^ ".exe"); "-g" ]
+    [ [ "-o"; Filename.concat "../_boot" (name ^ ".exe"); "-g" ]
     ; (match Config.mode with
       | Byte -> [ Config.output_complete_obj_arg ]
       | Native -> [])
@@ -1081,15 +1080,18 @@ let build_with_single_command ~ocaml_config:_ ~dependencies ~c_files ~link_flags
 let rec rm_rf fn =
   match Unix.lstat fn with
   | { st_kind = S_DIR; _ } ->
-    List.iter (readdir fn) ~f:rm_rf;
+    clear fn;
     Unix.rmdir fn
   | _ -> Unix.unlink fn
   | exception Unix.Unix_error (ENOENT, _, _) -> ()
 
+and clear dir = List.iter (readdir dir) ~f:rm_rf
+
 (** {2 Bootstrap process} *)
 let main () =
-  rm_rf build_dir;
-  Unix.mkdir build_dir 0o777;
+  (try clear build_dir with Sys_error _ -> ());
+  (try Unix.mkdir build_dir 0o777
+   with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
   Config.ocaml_config () >>= fun ocaml_config ->
   assemble_libraries task >>= fun libraries ->
   let c_files =

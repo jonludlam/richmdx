@@ -1,14 +1,14 @@
 (** This is a doc comment with some code blocks in it:
 
-    {@ocaml[
+    {[
       # List.map (fun x -> x * x) [(1 + 9); 2; 3];;
       - : int list = [100; 4; 9]
     ]}
 
-    {@ocaml[List.map (fun x -> x * x) [1; 2; 3]]}
+    {[List.map (fun x -> x * x) [1; 2; 3]]}
 
 
-    {@ocaml[
+    {[
       let my_list = [1; 2; 3] in
       let the_list = 0 :: my_list in
       List.map (fun x -> x * x) the_list;;

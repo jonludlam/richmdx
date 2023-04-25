@@ -33,12 +33,16 @@ type ocaml_value = {
       (** [env] is the name given to the environment where tests are run. *)
   non_det : Label.non_det option;
   errors : Output.t list;
+      (** [header] defines whether a header was specified for the block. *)
+  output : string option;
+  header : Header.t option;
 }
 
 type toplevel_value = {
   env : Ocaml_env.t;
       (** [env] is the name given to the environment where tests are run. *)
   non_det : Label.non_det option;
+  top_output : string option;
 }
 
 type include_ocaml_file = {
@@ -72,6 +76,23 @@ type value =
 type section = int * string
 (** The type for sections. *)
 
+module Raw : sig
+  type t
+
+  val make :
+    loc:Location.t ->
+    section:section option ->
+    header:string ->
+    contents:string list ->
+    label_cmt:string option ->
+    legacy_labels:string ->
+    errors:Output.t list ->
+    t
+
+  val make_include :
+    loc:Location.t -> section:section option -> labels:string -> t
+end
+
 type t = {
   loc : Location.t;
   section : section option;
@@ -84,8 +105,8 @@ type t = {
       (** Whether the current OCaml version complies with the block's version. *)
   set_variables : (string * string) list;
   unset_variables : string list;
+  delim : string option;
   value : value;
-  output : string option;
 }
 (** The type for supported code blocks. *)
 
@@ -95,17 +116,20 @@ val mk :
   labels:Label.t list ->
   legacy_labels:bool ->
   header:Header.t option ->
+  delim:string option ->
   contents:string list ->
   errors:Output.t list ->
-  (t, [ `Msg of string ]) Result.result
+  (t, [ `Msg of string ]) result
 
 val mk_include :
   loc:Location.t ->
   section:section option ->
   labels:Label.t list ->
-  (t, [ `Msg of string ]) Result.result
+  (t, [ `Msg of string ]) result
 (** [mk_include] builds an include block from a comment [<!-- $MDX ... -->]
     that is not followed by a code block [``` ... ```]. *)
+
+val from_raw : Raw.t -> (t, [ `Msg of string ] list) Result.result
 
 (** {2 Printers} *)
 
@@ -123,10 +147,6 @@ val pp_footer : ?syntax:Syntax.t -> t Fmt.t
 
 val pp : ?syntax:Syntax.t -> t Fmt.t
 (** [pp] pretty-prints blocks. *)
-
-val pp_line_directive : (string * int) Fmt.t
-(** [pp_line_directive] pretty-prints a line directive given as a
-   filename and line number. *)
 
 (** {2 Accessors} *)
 
@@ -154,9 +174,8 @@ val value : t -> value
 val section : t -> section option
 (** [section t] is [t]'s section. *)
 
-val executable_contents : syntax:Syntax.t -> t -> string list
-(** [executable_contents t] is either [t]'s contents if [t] is a raw
-   or a cram block, or [t]'s commands if [t] is a toplevel fragments
-   (e.g. the phrase result is discarded). *)
-
 val is_active : ?section:string -> t -> bool
+
+(** {2 Helpers} *)
+
+val ends_by_semi_semi : string list -> bool

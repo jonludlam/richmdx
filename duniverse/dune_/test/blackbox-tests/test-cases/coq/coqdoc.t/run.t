@@ -9,7 +9,7 @@ Now we inspect it:
   index.html
   toc.html
 
-We buuild the coqdoc latex target:
+We build the coqdoc latex target:
   $ dune build basic.tex/
 
 Now we inspect it:
@@ -26,15 +26,14 @@ Note that this currently works due to a bug in @all detecting directory targets.
   META.base
   bar.glob
   bar.v
-  bar.v.d
   bar.vo
   bar.vok
   bar.vos
   base.dune-package
   base.install
+  basic.theory.d
   foo.glob
   foo.v
-  foo.v.d
   foo.vo
   foo.vok
   foo.vos

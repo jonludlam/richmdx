@@ -139,6 +139,7 @@ type t =
   ; parsing_context : Univ_map.t
   ; implicit_transitive_deps : bool
   ; wrapped_executables : bool
+  ; map_workspace_root : bool
   ; executables_implicit_empty_intf : bool
   ; accept_alternative_dune_file_name : bool
   ; generate_opam_files : bool
@@ -184,8 +185,6 @@ let use_standard_c_and_cxx_flags t = t.use_standard_c_and_cxx_flags
 
 let dialects t = t.dialects
 
-let set_dialects dialects t = { t with dialects }
-
 let explicit_js_mode t = t.explicit_js_mode
 
 let dune_version t = t.dune_version
@@ -203,6 +202,7 @@ let to_dyn
     ; packages
     ; implicit_transitive_deps
     ; wrapped_executables
+    ; map_workspace_root
     ; executables_implicit_empty_intf
     ; accept_alternative_dune_file_name
     ; generate_opam_files
@@ -229,6 +229,7 @@ let to_dyn
           (Package.Name.Map.to_list packages) )
     ; ("implicit_transitive_deps", bool implicit_transitive_deps)
     ; ("wrapped_executables", bool wrapped_executables)
+    ; ("map_workspace_root", bool map_workspace_root)
     ; ("executables_implicit_empty_intf", bool executables_implicit_empty_intf)
     ; ( "accept_alternative_dune_file_name"
       , bool accept_alternative_dune_file_name )
@@ -246,7 +247,7 @@ let to_dyn
 
 let find_extension_args t key = Univ_map.find t.extension_args key
 
-let is_extension_set t key = Option.is_some (find_extension_args t key)
+let is_extension_set t key = Univ_map.mem t.extension_args key
 
 include Dune_lang.Versioned_file.Make (struct
   type t = Stanza.Parser.t list
@@ -343,8 +344,11 @@ module Extension = struct
           | Extension e -> Not_selected e :: acc))
 end
 
-let interpret_lang_and_extensions ~(lang : Lang.Instance.t) ~explicit_extensions
-    =
+module Melange_syntax = struct
+  let name = "melange"
+end
+
+let explicit_extensions_map explicit_extensions =
   match
     String.Map.of_list
       (List.map explicit_extensions ~f:(fun (e : Extension.instance) ->
@@ -357,80 +361,84 @@ let interpret_lang_and_extensions ~(lang : Lang.Instance.t) ~explicit_extensions
   | Error (name, _, ext) ->
     User_error.raise ~loc:ext.loc
       [ Pp.textf "Extension %S specified for the second time." name ]
-  | Ok map ->
-    let extensions = Extension.automatic ~explicitly_selected:map in
-    let parsing_context =
-      let init =
-        Univ_map.singleton
-          (Dune_lang.Syntax.key lang.syntax)
-          (Active lang.version)
-      in
-      let init =
-        Univ_map.set init String_with_vars.decoding_env_key
-          (Pform.Env.initial lang.version)
-      in
-      List.fold_left extensions ~init ~f:(fun acc (ext : Extension.automatic) ->
-          let syntax =
-            let (Extension.Packed ext) =
-              match ext with
-              | Selected e -> e.extension
-              | Not_selected e -> e
-            in
-            ext.syntax
-          in
-          let status : Dune_lang.Syntax.Key.t =
+  | Ok map -> map
+
+let interpret_lang_and_extensions ~(lang : Lang.Instance.t) ~explicit_extensions
+    =
+  let extensions =
+    Extension.automatic ~explicitly_selected:explicit_extensions
+  in
+  let parsing_context =
+    let init =
+      Univ_map.singleton
+        (Dune_lang.Syntax.key lang.syntax)
+        (Active lang.version)
+    in
+    let init =
+      Univ_map.set init String_with_vars.decoding_env_key
+        (Pform.Env.initial lang.version)
+    in
+    List.fold_left extensions ~init ~f:(fun acc (ext : Extension.automatic) ->
+        let syntax =
+          let (Extension.Packed ext) =
             match ext with
-            | Selected ext -> Active ext.version
-            | Not_selected (Packed e) ->
-              Inactive
-                { lang = e.syntax; dune_lang_ver = lang.Lang.Instance.version }
+            | Selected e -> e.extension
+            | Not_selected e -> e
           in
-          Univ_map.set acc (Dune_lang.Syntax.key syntax) status)
-    in
-    let extension_args, extension_stanzas =
-      List.fold_left extensions ~init:(Univ_map.empty, [])
-        ~f:(fun (args_acc, stanzas_acc) (ext : Extension.automatic) ->
+          ext.syntax
+        in
+        let status : Dune_lang.Syntax.Key.t =
           match ext with
+          | Selected ext -> Active ext.version
           | Not_selected (Packed e) ->
-            let stanzas =
-              let open Dune_lang.Decoder in
-              let _arg, stanzas =
-                let parsing_context =
-                  (* Temporarily mark the extension as active so that we can
-                     call the parser and extract the list of stanza names this
-                     extension registers *)
-                  Univ_map.set parsing_context
-                    (Dune_lang.Syntax.key e.syntax)
-                    (Active
-                       (Dune_lang.Syntax.greatest_supported_version e.syntax))
-                in
-                parse (enter e.stanzas) parsing_context
-                  (List (Loc.of_pos __POS__, []))
+            Inactive
+              { lang = e.syntax; dune_lang_ver = lang.Lang.Instance.version }
+        in
+        Univ_map.set acc (Dune_lang.Syntax.key syntax) status)
+  in
+  let extension_args, extension_stanzas =
+    List.fold_left extensions ~init:(Univ_map.empty, [])
+      ~f:(fun (args_acc, stanzas_acc) (ext : Extension.automatic) ->
+        match ext with
+        | Not_selected (Packed e) ->
+          let stanzas =
+            let open Dune_lang.Decoder in
+            let _arg, stanzas =
+              let parsing_context =
+                (* Temporarily mark the extension as active so that we can
+                   call the parser and extract the list of stanza names this
+                   extension registers *)
+                Univ_map.set parsing_context
+                  (Dune_lang.Syntax.key e.syntax)
+                  (Active (Dune_lang.Syntax.greatest_supported_version e.syntax))
               in
-              List.map stanzas ~f:(fun (name, _) ->
-                  ( name
-                  , let+ _ = Dune_lang.Syntax.get_exn e.syntax in
-                    (* The above [get_exn] will raise because the extension is
-                       inactive *)
-                    assert false ))
+              parse (enter e.stanzas) parsing_context
+                (List (Loc.of_pos __POS__, []))
             in
-            (args_acc, stanzas :: stanzas_acc)
-          | Selected instance ->
-            let (Packed e) = instance.extension in
-            let args =
-              let+ arg, stanzas =
-                Dune_lang.Decoder.set_many parsing_context e.stanzas
-              in
-              (Univ_map.set args_acc e.key arg, stanzas)
+            List.map stanzas ~f:(fun (name, _) ->
+                ( name
+                , let+ _ = Dune_lang.Syntax.get_exn e.syntax in
+                  (* The above [get_exn] will raise because the extension is
+                     inactive *)
+                  assert false ))
+          in
+          (args_acc, stanzas :: stanzas_acc)
+        | Selected instance ->
+          let (Packed e) = instance.extension in
+          let args =
+            let+ arg, stanzas =
+              Dune_lang.Decoder.set_many parsing_context e.stanzas
             in
-            let args_acc, stanzas = instance.parse_args args in
-            (args_acc, stanzas :: stanzas_acc))
-    in
-    let stanzas = List.concat (lang.data :: extension_stanzas) in
-    let stanza_parser =
-      Dune_lang.Decoder.(set_many parsing_context (sum stanzas))
-    in
-    (parsing_context, stanza_parser, extension_args)
+            (Univ_map.set args_acc e.key arg, stanzas)
+          in
+          let args_acc, stanzas = instance.parse_args args in
+          (args_acc, stanzas :: stanzas_acc))
+  in
+  let stanzas = List.concat (lang.data :: extension_stanzas) in
+  let stanza_parser =
+    Dune_lang.Decoder.(set_many parsing_context (sum stanzas))
+  in
+  (parsing_context, stanza_parser, extension_args)
 
 let key = Univ_map.Key.create ~name:"dune-project" to_dyn
 
@@ -448,6 +456,8 @@ let implicit_transitive_deps_default ~lang:_ = true
 
 let wrapped_executables_default ~(lang : Lang.Instance.t) =
   lang.version >= (2, 0)
+
+let map_workspace_root_default ~(lang : Lang.Instance.t) = lang.version >= (3, 0)
 
 let executables_implicit_empty_intf_default ~(lang : Lang.Instance.t) =
   lang.version >= (3, 0)
@@ -497,10 +507,11 @@ let infer ~dir ?(info = Package.Info.empty) packages =
   let name = default_name ~dir ~packages in
   let project_file = Path.Source.relative dir filename in
   let parsing_context, stanza_parser, extension_args =
-    interpret_lang_and_extensions ~lang ~explicit_extensions:[]
+    interpret_lang_and_extensions ~lang ~explicit_extensions:String.Map.empty
   in
   let implicit_transitive_deps = implicit_transitive_deps_default ~lang in
   let wrapped_executables = wrapped_executables_default ~lang in
+  let map_workspace_root = map_workspace_root_default ~lang in
   let executables_implicit_empty_intf =
     executables_implicit_empty_intf_default ~lang
   in
@@ -518,6 +529,7 @@ let infer ~dir ?(info = Package.Info.empty) packages =
   ; dune_version = lang.version
   ; implicit_transitive_deps
   ; wrapped_executables
+  ; map_workspace_root
   ; executables_implicit_empty_intf
   ; accept_alternative_dune_file_name = false
   ; stanza_parser
@@ -586,6 +598,7 @@ let encode : t -> Dune_lang.t list =
      ; packages
      ; implicit_transitive_deps
      ; wrapped_executables
+     ; map_workspace_root
      ; executables_implicit_empty_intf
      ; accept_alternative_dune_file_name
      ; generate_opam_files
@@ -631,6 +644,7 @@ let encode : t -> Dune_lang.t list =
           implicit_transitive_deps_default
       ; flag "wrapped_executables" wrapped_executables
           wrapped_executables_default
+      ; flag "map_workspace_root" map_workspace_root map_workspace_root_default
       ; flag "executables_implicit_empty_intf" executables_implicit_empty_intf
           executables_implicit_empty_intf_default
       ; flag "strict_package_deps" strict_package_deps
@@ -663,7 +677,9 @@ let encode : t -> Dune_lang.t list =
       ]
   in
   let dialects =
-    Dialect.DB.fold ~f:(fun d ls -> Dialect.encode d :: ls) ~init:[] dialects
+    if Dialect.DB.is_default dialects then []
+    else
+      Dialect.DB.fold ~f:(fun d ls -> Dialect.encode d :: ls) ~init:[] dialects
   in
   let formatting =
     Option.bind format_config ~f:Format_config.encode_opt |> Option.to_list
@@ -710,6 +726,9 @@ let parse ~dir ~lang ~file ~dir_status =
         and+ wrapped_executables =
           field_o_b "wrapped_executables"
             ~check:(Dune_lang.Syntax.since Stanza.syntax (1, 11))
+        and+ map_workspace_root =
+          field_o_b "map_workspace_root"
+            ~check:(Dune_lang.Syntax.since Stanza.syntax (3, 7))
         and+ _allow_approx_merlin =
           (* TODO DUNE3 remove this field from parsing *)
           let+ loc = loc
@@ -798,9 +817,10 @@ let parse ~dir ~lang ~file ~dir_status =
                    in
                    let related = [ message loc1; message loc2 ] in
                    User_message.Annots.singleton Compound_user_error.annot
-                     (Compound_user_error.make
-                        ~main:(User_message.make main_message)
-                        ~related)
+                     [ Compound_user_error.make
+                         ~main:(User_message.make main_message)
+                         ~related
+                     ]
                  in
                  User_error.raise ~annots
                    (main_message
@@ -841,7 +861,7 @@ let parse ~dir ~lang ~file ~dir_status =
                        User_error.raise ~loc
                          [ Pp.text
                              "This opam file doesn't have a corresponding \
-                              (package ...) stanza in the dune-project_file. \
+                              (package ...) stanza in the dune-project file. \
                               Since you have at least one other (package ...) \
                               stanza in your dune-project file, you must a \
                               (package ...) stanza for each opam package in \
@@ -864,6 +884,9 @@ let parse ~dir ~lang ~file ~dir_status =
             | Some n -> n
             | None -> default_name ~dir ~packages
           in
+          let explicit_extensions =
+            explicit_extensions_map explicit_extensions
+          in
           let parsing_context, stanza_parser, extension_args =
             interpret_lang_and_extensions ~lang ~explicit_extensions
           in
@@ -874,6 +897,10 @@ let parse ~dir ~lang ~file ~dir_status =
           let wrapped_executables =
             Option.value wrapped_executables
               ~default:(wrapped_executables_default ~lang)
+          in
+          let map_workspace_root =
+            Option.value map_workspace_root
+              ~default:(map_workspace_root_default ~lang)
           in
           let executables_implicit_empty_intf =
             Option.value executables_implicit_empty_intf
@@ -908,10 +935,14 @@ let parse ~dir ~lang ~file ~dir_status =
           let root = dir in
           let file_key = File_key.make ~name ~root in
           let dialects =
-            List.fold_left
+            let dialects =
+              match String.Map.find explicit_extensions Melange_syntax.name with
+              | Some extension -> (extension.loc, Dialect.rescript) :: dialects
+              | None -> dialects
+            in
+            List.fold_left dialects ~init:Dialect.DB.builtin
               ~f:(fun dialects (loc, dialect) ->
                 Dialect.DB.add dialects ~loc dialect)
-              ~init:Dialect.DB.builtin dialects
           in
           let () =
             match name with
@@ -944,6 +975,7 @@ let parse ~dir ~lang ~file ~dir_status =
           ; parsing_context
           ; implicit_transitive_deps
           ; wrapped_executables
+          ; map_workspace_root
           ; executables_implicit_empty_intf
           ; accept_alternative_dune_file_name
           ; generate_opam_files
@@ -961,7 +993,7 @@ let load_dune_project ~dir opam_packages ~dir_status : t Memo.t =
   let file = Path.Source.relative dir filename in
   let open Memo.O in
   let* f =
-    Fs_memo.with_lexbuf_from_file (Path.source file) ~f:(fun lexbuf ->
+    Fs_memo.with_lexbuf_from_file (In_source_dir file) ~f:(fun lexbuf ->
         parse_contents lexbuf ~f:(fun lang ->
             parse ~dir ~lang ~file ~dir_status))
   in
@@ -1000,6 +1032,8 @@ let set_parsing_context t parser =
 
 let wrapped_executables t = t.wrapped_executables
 
+let map_workspace_root t = t.map_workspace_root
+
 let executables_implicit_empty_intf t = t.executables_implicit_empty_intf
 
 let accept_alternative_dune_file_name t = t.accept_alternative_dune_file_name
@@ -1021,3 +1055,5 @@ let update_execution_parameters t ep =
   |> Execution_parameters.set_dune_version t.dune_version
   |> Execution_parameters.set_expand_aliases_in_sandbox
        t.expand_aliases_in_sandbox
+  |> Execution_parameters.set_add_workspace_root_to_build_path_prefix_map
+       t.map_workspace_root

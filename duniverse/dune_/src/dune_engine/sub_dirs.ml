@@ -155,10 +155,24 @@ module Dir_map = struct
     ; subdir_status : subdir_stanzas
     }
 
+  let dyn_of_per_dir { sexps; subdir_status = _ } =
+    let open Dyn in
+    record
+      [ ( "sexps"
+        , list Dune_lang.to_dyn (List.map ~f:Dune_lang.Ast.remove_locs sexps) )
+      ]
+
   type t =
     { data : per_dir
     ; nodes : t String.Map.t
     }
+
+  let rec to_dyn { data; nodes } =
+    let open Dyn in
+    record
+      [ ("data", dyn_of_per_dir data)
+      ; ("nodes", String.Map.to_dyn to_dyn nodes)
+      ]
 
   let empty_per_dir =
     { sexps = []; subdir_status = Status.Map.init ~f:(fun _ -> None) }
@@ -185,10 +199,21 @@ module Dir_map = struct
     ; subdir_status =
         Status.Map.merge d1.subdir_status d2.subdir_status ~f:(fun l r ->
             Option.merge l r ~f:(fun (loc, _) (loc2, _) ->
-                User_error.raise ~loc
-                  [ Pp.text "This stanza stanza was already specified at:"
-                  ; Pp.verbatim (Loc.to_file_colon_line loc2)
-                  ]))
+                let main_message =
+                  Pp.text "This stanza stanza was already specified at:"
+                in
+                let annots =
+                  let main = User_message.make ~loc [ main_message ] in
+                  let related =
+                    [ User_message.make ~loc:loc2
+                        [ Pp.text "Already defined here" ]
+                    ]
+                  in
+                  User_message.Annots.singleton Compound_user_error.annot
+                    [ Compound_user_error.make ~main ~related ]
+                in
+                User_error.raise ~loc ~annots
+                  [ main_message; Pp.verbatim (Loc.to_file_colon_line loc2) ]))
     }
 
   let rec merge t1 t2 : t =

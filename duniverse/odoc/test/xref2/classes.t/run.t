@@ -16,6 +16,7 @@ resolve correctly. All of the 'Class' json objects should contain
   $ odoc_print -r f f.odoc 
   {
     "id": { "`Value": [ { "`Root": [ "None", "F" ] }, "f" ] },
+    "locs": "None",
     "doc": [],
     "type_": {
       "Class": [
@@ -34,13 +35,15 @@ resolve correctly. All of the 'Class' json objects should contain
   $ odoc_print e.odoc -r g
   {
     "id": { "`Value": [ { "`Root": [ "None", "E" ] }, "g" ] },
+    "locs": "None",
     "doc": [],
     "type_": {
       "Class": [
         {
           "`Resolved": {
             "`ClassType": [
-              { "`Identifier": { "`Root": [ "None", "B" ] } }, "u"
+              { "`Identifier": { "`Root": [ "None", "B" ] } },
+              "u"
             ]
           }
         },
@@ -71,32 +74,42 @@ resolve correctly. All of the 'Class' json objects should contain
     ]
   }
 
-  $ odoc_print c.odoc -r g
+  $ odoc_print c.odoc -r g | jq '.type_'
   {
-    "id": { "`Value": [ { "`Root": [ "None", "C" ] }, "g" ] },
-    "doc": [],
-    "type_": {
-      "Arrow": [
-        "None",
-        {
-          "Class": [
-            {
-              "`Resolved": {
-                "`ClassType": [
-                  { "`Identifier": { "`Root": [ "None", "B" ] } }, "u"
-                ]
+    "Arrow": [
+      "None",
+      {
+        "Class": [
+          {
+            "`Resolved": {
+              "`ClassType": [
+                {
+                  "`Identifier": {
+                    "`Root": [
+                      "None",
+                      "B"
+                    ]
+                  }
+                },
+                "u"
+              ]
+            }
+          },
+          []
+        ]
+      },
+      {
+        "Constr": [
+          {
+            "`Resolved": {
+              "`Identifier": {
+                "`CoreType": "unit"
               }
-            },
-            []
-          ]
-        },
-        {
-          "Constr": [
-            { "`Resolved": { "`Identifier": { "`CoreType": "unit" } } }, []
-          ]
-        }
-      ]
-    },
-    "value": "Abstract"
+            }
+          },
+          []
+        ]
+      }
+    ]
   }
 

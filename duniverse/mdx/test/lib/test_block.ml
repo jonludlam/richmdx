@@ -23,9 +23,16 @@ let test_mk =
     let test_fun () =
       let actual =
         Mdx.Block.mk ~loc:Location.none ~section:None ~labels
-          ~legacy_labels:false ~header ~contents ~errors:[]
+          ~legacy_labels:false ~header ~delim:None ~contents ~errors:[]
       in
-      Alcotest.(check (result Testable.block Testable.msg))
+      let expected =
+        Result.map_error
+          (function
+            | `Msg m ->
+                `Msg ({|File "_none_", line 1: invalid code block: |} ^ m))
+          expected
+      in
+      Alcotest.(check (Testable.errormsg Testable.block))
         test_name expected actual
     in
     (test_name, `Quick, test_fun)

@@ -10,27 +10,6 @@ module Dialect = Dune_engine.Dialect
     syntax tree (CST) a good deal. *)
 module Cst = Dune_lang.Cst
 
-module Kind = struct
-  type t =
-    | Executable
-    | Library
-    | Project
-    | Test
-
-  let to_string = function
-    | Executable -> "executable"
-    | Library -> "library"
-    | Project -> "project"
-    | Test -> "test"
-
-  let commands =
-    [ ("executable", Executable)
-    ; ("library", Library)
-    ; ("project", Project)
-    ; ("test", Test)
-    ]
-end
-
 (** Abstractions around the kinds of files handled during initialization *)
 module File = struct
   type dune =
@@ -139,6 +118,11 @@ module File = struct
     let full_path = Path.relative path name in
     let content =
       if not (Path.exists full_path) then []
+      else if Path.is_directory full_path then
+        User_error.raise
+          [ Pp.textf "\"%s\" already exists and is a directory"
+              (Path.to_absolute_filename full_path)
+          ]
       else
         match Io.with_lexbuf_from_file ~f:Dune_lang.Format.parse full_path with
         | Dune_lang.Format.Sexps content -> content
@@ -354,7 +338,6 @@ module Component = struct
       in
       let info = Package.Info.example in
       Dune_project.anonymous ~dir ~packages ~info ()
-      |> Dune_project.set_dialects Dialect.DB.empty
       |> Dune_project.set_generate_opam_files opam_file_gen
       |> Dune_project.encode
       |> List.map ~f:(fun exp ->
@@ -478,12 +461,9 @@ module Component = struct
       in
       lib_target @ test_target
 
-    let proj
-        ({ context; common; options } as opts : Options.Project.t Options.t) =
+    let proj ({ common; options; _ } as opts : Options.Project.t Options.t) =
       let ({ template; pkg; _ } : Options.Project.t) = options in
-      let dir =
-        Path.relative context.dir (Dune_lang.Atom.to_string common.name)
-      in
+      let dir = Path.root in
       let name =
         Package.Name.parse_string_exn
           (Loc.none, Dune_lang.Atom.to_string common.name)

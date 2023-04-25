@@ -1,12 +1,17 @@
 pin-depends: [
-  [ "odoc.2.2.0+dev" "git+https://github.com/jonludlam/odoc.git#code_output" ]
-  [ "odoc-parser.3.0.0+dev" "git+https://github.com/jonludlam/odoc-parser.git#code_output" ]
-  [ "mdx.2.2.0+dev" "git+https://github.com/jonludlam/mdx.git#mld_support2" ]
+  [ "odoc.2.2.0+dev" "git+https://github.com/jonludlam/odoc.git#code_output2" ]
+  [ "odoc-parser.3.0.0+dev" "git+https://github.com/jonludlam/odoc-parser.git#code_output3" ]
+  [ "mdx.2.2.0+dev" "git+https://github.com/jonludlam/mdx.git#richmdx" ]
   [ "mime_printer.0.0.1+dev" "git+https://github.com/jonludlam/mime_printer.git" ]
   [ "imagelib.20210511+dev" "git+https://github.com/rlepigre/ocaml-imagelib.git#master" ]
   [ "ocamlfind.1.9.6+dune" "git+https://github.com/jonludlam/lib-findlib.git#dune-universe-v1.9.6" ]
   [ "findlib.1.9.6+dune" "git+https://github.com/jonludlam/lib-findlib.git#dune-universe-v1.9.6" ]
   [ "gg.1.0.0+dune" "git+https://github.com/jonludlam/gg#dune"]
   [ "vg.0.9.4+dune" "git+https://github.com/jonludlam/vg#dune"]
+]
+
+x-opam-monorepo-opam-repositories: [
+  "git+https://github.com/ocaml/opam-repository"
+  "git+https://github.com/dune-universe/opam-overlays"
 ]
 

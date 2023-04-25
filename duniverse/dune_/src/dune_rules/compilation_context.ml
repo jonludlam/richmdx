@@ -1,41 +1,51 @@
 open Import
 
 module Includes = struct
-  type t = Command.Args.without_targets Command.Args.t Cm_kind.Dict.t
+  type t = Command.Args.without_targets Command.Args.t Lib_mode.Cm_kind.Map.t
 
-  let make ~project ~opaque ~requires : _ Cm_kind.Dict.t =
+  let make ~project ~opaque ~requires : _ Lib_mode.Cm_kind.Map.t =
     let open Resolve.Memo.O in
     let iflags libs mode = Lib_flags.L.include_flags ~project libs mode in
-    let cmi_includes =
+    let make_includes_args ~mode groups =
       Command.Args.memo
         (Resolve.Memo.args
            (let+ libs = requires in
             Command.Args.S
-              [ iflags libs Byte
-              ; Hidden_deps (Lib_file_deps.deps libs ~groups:[ Cmi ])
+              [ iflags libs mode
+              ; Hidden_deps (Lib_file_deps.deps libs ~groups)
               ]))
     in
+    let cmi_includes = make_includes_args ~mode:(Ocaml Byte) [ Ocaml Cmi ] in
     let cmx_includes =
       Command.Args.memo
         (Resolve.Memo.args
            (let+ libs = requires in
             Command.Args.S
-              [ iflags libs Native
+              [ iflags libs (Ocaml Native)
               ; Hidden_deps
                   (if opaque then
                    List.map libs ~f:(fun lib ->
                        ( lib
-                       , if Lib.is_local lib then [ Lib_file_deps.Group.Cmi ]
-                         else [ Cmi; Cmx ] ))
+                       , if Lib.is_local lib then
+                           [ Lib_file_deps.Group.Ocaml Cmi ]
+                         else [ Ocaml Cmi; Ocaml Cmx ] ))
                    |> Lib_file_deps.deps_with_exts
                   else
                     Lib_file_deps.deps libs
-                      ~groups:[ Lib_file_deps.Group.Cmi; Cmx ])
+                      ~groups:[ Lib_file_deps.Group.Ocaml Cmi; Ocaml Cmx ])
               ]))
     in
-    { cmi = cmi_includes; cmo = cmi_includes; cmx = cmx_includes }
+    let melange_cmi_includes =
+      make_includes_args ~mode:Melange [ Melange Cmi ]
+    in
+    let melange_cmj_includes =
+      make_includes_args ~mode:Melange [ Melange Cmi; Melange Cmj ]
+    in
+    { ocaml = { cmi = cmi_includes; cmo = cmi_includes; cmx = cmx_includes }
+    ; melange = { cmi = melange_cmi_includes; cmj = melange_cmj_includes }
+    }
 
-  let empty = Cm_kind.Dict.make_all Command.Args.empty
+  let empty = Lib_mode.Cm_kind.Map.make_all Command.Args.empty
 end
 
 type opaque =
@@ -73,7 +83,8 @@ type t =
   ; sandbox : Sandbox_config.t
   ; package : Package.t option
   ; vimpl : Vimpl.t option
-  ; modes : Mode.Dict.Set.t
+  ; public_lib_name : Lib_name.t option
+  ; modes : Lib_mode.Map.Set.t
   ; bin_annot : bool
   ; ocamldep_modules_data : Ocamldep.Modules_data.t
   ; loc : Loc.t option
@@ -115,6 +126,8 @@ let set_sandbox t sandbox = { t with sandbox }
 
 let package t = t.package
 
+let public_lib_name t = t.public_lib_name
+
 let vimpl t = t.vimpl
 
 let modes t = t.modes
@@ -129,7 +142,8 @@ let dep_graphs t = t.modules.dep_graphs
 
 let create ~super_context ~scope ~expander ~obj_dir ~modules ~flags
     ~requires_compile ~requires_link ?(preprocessing = Pp_spec.dummy) ~opaque
-    ?stdlib ~js_of_ocaml ~package ?vimpl ?modes ?(bin_annot = true) ?loc () =
+    ?stdlib ~js_of_ocaml ~package ?public_lib_name ?vimpl ?modes
+    ?(bin_annot = true) ?loc () =
   let open Memo.O in
   let project = Scope.project scope in
   let requires_compile =
@@ -147,14 +161,17 @@ let create ~super_context ~scope ~expander ~obj_dir ~modules ~flags
   in
   let modes =
     let default =
-      Mode.Dict.make_both (Some Dune_file.Mode_conf.Kind.Inherited)
+      { Lib_mode.Map.ocaml =
+          Mode.Dict.make_both (Some Dune_file.Mode_conf.Kind.Inherited)
+      ; melange = None
+      }
     in
-    Option.value ~default modes |> Mode.Dict.map ~f:Option.is_some
+    Option.value ~default modes |> Lib_mode.Map.map ~f:Option.is_some
   in
   let opaque = eval_opaque (Super_context.context super_context) opaque in
   let ocamldep_modules_data : Ocamldep.Modules_data.t =
     { dir = Obj_dir.dir obj_dir
-    ; sandbox
+    ; sandbox = Sandbox_config.no_special_requirements
     ; obj_dir
     ; sctx = super_context
     ; vimpl
@@ -179,6 +196,7 @@ let create ~super_context ~scope ~expander ~obj_dir ~modules ~flags
   ; sandbox
   ; package
   ; vimpl
+  ; public_lib_name
   ; modes
   ; bin_annot
   ; ocamldep_modules_data
@@ -186,11 +204,16 @@ let create ~super_context ~scope ~expander ~obj_dir ~modules ~flags
   }
 
 let for_alias_module t alias_module =
+  let keep_flags = Modules.is_stdlib_alias (modules t) alias_module in
   let flags =
-    let project = Scope.project t.scope in
-    let dune_version = Dune_project.dune_version project in
-    let profile = (Super_context.context t.super_context).profile in
-    Ocaml_flags.default ~dune_version ~profile
+    if keep_flags then
+      (* in the case of stdlib, these flags can be written by the user *)
+      t.flags
+    else
+      let project = Scope.project t.scope in
+      let dune_version = Dune_project.dune_version project in
+      let profile = (Super_context.context t.super_context).profile in
+      Ocaml_flags.default ~dune_version ~profile
   in
   let sandbox =
     let ctx = Super_context.context t.super_context in
@@ -244,11 +267,15 @@ let for_module_generated_at_link_time cctx ~requires ~module_ =
     Ocaml.Version.supports_opaque_for_mli ctx.version
   in
   let modules = singleton_modules module_ in
+  let includes =
+    Includes.make ~project:(Scope.project cctx.scope) ~opaque ~requires
+  in
   { cctx with
     opaque
   ; flags = Ocaml_flags.empty
   ; requires_link = Memo.lazy_ (fun () -> requires)
   ; requires_compile = requires
+  ; includes
   ; modules
   }
 
@@ -282,3 +309,7 @@ let root_module_entries t =
         >>= Resolve.read)
   in
   Action_builder.return (List.concat l)
+
+let set_obj_dir t obj_dir = { t with obj_dir }
+
+let set_modes t ~modes = { t with modes }

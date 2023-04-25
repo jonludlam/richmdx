@@ -52,8 +52,8 @@ let report_error_in_block block msg =
     | Cram _ -> "cram "
     | Toplevel _ -> "toplevel "
   in
-  Fmt.epr "%a: Error in the %scode block@]\n%s\n"
-    Stable_printer.Location.print_loc block.loc kind msg
+  Fmt.epr "%a: Error in the %scode block@]\n%s\n" Stable_printer.Location.pp
+    block.loc kind msg
 
 let run setup non_deterministic silent_eval record_backtrace syntax silent
     verbose_findlib prelude prelude_str file section root force_output output :
@@ -82,7 +82,7 @@ let term =
 
 let info =
   let man = [] in
-  let doc = "Test markdown files." in
+  let doc = "Execute and test code in documentation files." in
   Cmd.info "ocaml-mdx-test" ~version:"%%VERSION%%" ~doc ~man
 
 let cmd = Cmd.v info term

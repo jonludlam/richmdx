@@ -84,7 +84,7 @@ Once installed, we have the version information:
 
 Check what the generated build info module looks like:
 
-  $ cat _build/default/c/.c.eobjs/build_info_data.ml-gen \
+  $ cat _build/default/c/.c.eobjs/build_info__Build_info_data.ml-gen \
   >   | sed 's/"dune-build-info".*/"dune-build-info", Some "XXX"/'
   let eval s =
     let s = Bytes.unsafe_to_string (Bytes.unsafe_of_string s) in
@@ -100,9 +100,9 @@ Check what the generated build info module looks like:
       None
   [@@inline never]
   
-  let p1 = eval "%%DUNE_PLACEHOLDER:64:vcs-describe:1:a%%%%%%%%%%%%%%%%%%%%%%%%%%"
-  let p2 = eval "%%DUNE_PLACEHOLDER:64:vcs-describe:1:b%%%%%%%%%%%%%%%%%%%%%%%%%%"
-  let p0 = eval "%%DUNE_PLACEHOLDER:64:vcs-describe:1:c%%%%%%%%%%%%%%%%%%%%%%%%%%"
+  let p1 = eval (Sys.opaque_identity "%%DUNE_PLACEHOLDER:64:vcs-describe:1:a%%%%%%%%%%%%%%%%%%%%%%%%%%")
+  let p2 = eval (Sys.opaque_identity "%%DUNE_PLACEHOLDER:64:vcs-describe:1:b%%%%%%%%%%%%%%%%%%%%%%%%%%")
+  let p0 = eval (Sys.opaque_identity "%%DUNE_PLACEHOLDER:64:vcs-describe:1:c%%%%%%%%%%%%%%%%%%%%%%%%%%")
   
   let version = p0
   
@@ -132,7 +132,7 @@ craft an example with a single placeholder to make the output stable:
   $ dune build d/d.install
   $ dune install d --prefix _install --debug-artifact-substitution 2>&1|grep -v '^\(Installing\|Deleting\)'
   Found placeholder in _build/install/default/bin/d:
-  - placeholder: Vcs_describe "d"
+  - placeholder: Vcs_describe In_source_tree "d"
   - evaluates to: "1.0+d"
 
 Test substitution when promoting

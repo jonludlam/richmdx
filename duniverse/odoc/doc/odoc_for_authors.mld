@@ -30,7 +30,7 @@ v}
 - {{!page-driver}The reference driver} is the simplest driver, useful if you
   want to see how to integrate it with your own projects.
 - {{:https://github.com/ocaml-doc/voodoo}Voodoo} is the driver used to create
-  the docs for {{:https://v3.ocaml.org/packages}the new OCaml website}.
+  the docs for {{:https://ocaml.org/packages}the OCaml website}.
 
 {1:interfaces Documenting your interfaces}
 
@@ -232,36 +232,36 @@ from OCamldoc.
 Text within the comments can be formatted using the following markup. Firstly,
 the simple typesetting markup:
 
-- [{b text}] bold
-- [{i text}] italic
-- [{e text}] emphasis
-- [{^ text}] superscript
-- [{_ text}] subscript
+- [{b <text>}] bold
+- [{i <text>}] italic
+- [{e <text>}] emphasis
+- [{^ <text>}] superscript
+- [{_ <text>}] subscript
  
 {3:lists Lists}
 Unordered lists:
 {v
-{ul {- item}
-    {- item}
-    {- item}}
+{ul {- <item>}
+    {- <item>}
+    {- <item>}}
 v}
 and ordered lists:
 {v
-{ol {- item 1}
-    {- item 2}
-    {- item 3}}
+{ol {- <item 1>}
+    {- <item 2>}
+    {- <item 3>}}
 v}
 There is also an abbreviated syntax for lists. The above could be written:
 {v
-- item
-- item
-- item
+- <item>
+- <item>
+- <item>
 v}
 and
 {v
-+ item 1
-+ item 2
-+ item 3
++ <item 1>
++ <item 2>
++ <item 3>
 v}
 
 {3:code_blocks Code Blocks}
@@ -294,10 +294,34 @@ doc.
 *)
 v}
 
+{4:language_headers Language Headers}
+
+As of [odoc.2.2] it is possible to write blocks with explicit language headers.
+These blocks can be written using the enclosing tags [{@<language>[ ... ]}].
+The content of those block should be properly styled if highlightjs supports the
+styling for the given language.
+
+{v
+(** Here is some python code:
+    {@python[
+    def f():
+      return 0
+    ]}
+*)
+v}
+
+And rendered this becomes:
+
+Here is some python code:
+{@python[
+  def f():
+    return 0
+]}
+
 {4:verbatim_blocks Verbatim Blocks}
 
 It is possible to write language agnostic code blocks, also called verbatim
-blocks using the enclosing tags [ {v ... v} ]. The content of these blocks will be
+blocks using the enclosing tags [{v ... v}]. The content of these blocks will be
 formatted as code but with no particular style applied.
 
 {[
@@ -310,7 +334,7 @@ formatted as code but with no particular style applied.
 
 {3:escaping Escaping}
 
-In most contexts, the characters [ { [ ] } @ ] all need to be escaped with a backslash.
+In most contexts, the characters [{ [ ] } @] all need to be escaped with a backslash.
 In inline source code style, only square brackets need to be escaped. However, as a
 convenience, {e matched} square brackets need not be escaped to aid in typesetting
 code. For example, the following would be acceptable in a documentation comment:
@@ -328,10 +352,10 @@ followed by [ v} ]. It is not currently possible to escape this in either case.
 A link to a URL may be put into the text as follows:
 
 {[
-(** See {{: https://www.ocaml.org/ }the OCaml website} for news about OCaml *)
+(** See {{: https://ocaml.org/ }the OCaml website} for news about OCaml *)
 ]}
 
-This will render as a link to [https://www.ocaml.org/] with the text "the OCaml website" 
+This will render as a link to [https://ocaml.org/] with the text "the OCaml website"
 
 References are links to other elements - e.g., comments might wish to refer to 
 a module or type elsewhere as follows:
@@ -355,19 +379,19 @@ module type [Foo].
 
 The prefixes supported are:
 - [module]
-- [module-type] (also [modtype])
+- [module-type] (and the equivalent deprecated prefix [modtype])
 - [class]
-- [class-type] (also [classtype])
-- [value] (also [val])
+- [class-type] (and the equivalent deprecated prefix [classtype])
+- [val] (and the equivalent deprecated prefix [value])
 - [type]
-- [exn] (also [exception])
+- [exception] (and the equivalent deprecated prefix [exn])
 - [method]
-- [constructor] (also [const])
+- [constructor] (and the equivalent deprecated prefix [const])
 - [extension]
-- [field] (also [recfield])
+- [field] (and the equivalent deprecated prefix [recfield])
 - [instance-variable]
-- [label] (also [section] - for referring to headings)
-- [page] (for referring to [.mld] pages)
+- [section] (and the equivalent deprecated prefix [label]) - for referring to headings
+- [page] - for referring to [.mld] pages
 
 In some cases the element being referenced might have a hyphen, a dot or a space in the name,
 e.g. if trying to refer to a page from a [.mld] file "1.2.3.mld". In this case, the
@@ -481,24 +505,42 @@ These tags have a block of potentially marked-up text associated with them,
 and occasionally some more data too. The block of text is ended by the end
 of the comment or by another tag. They are:
 
-- [@deprecated text] - marks the element as deprecated. [text] should describe
+- [@deprecated <text>] - marks the element as deprecated. [text] should describe
 when the element was deprecated, what to use as a replacement, and possibly
 the reason for the deprecation
-- [@param id text] - Associate the the given description (text) to the given 
+- [@param <id> <text>] - Associate the the given description (text) to the given 
 parameter name id. OCamldoc uses this tag for functions, methods, classes 
 and functors, but [odoc] does not currently enforce this restriction.
-- [@raise exn text] - Indicates that the element may raise [exn]. The text should
+- [@raise <exn> <text>] - Indicates that the element may raise [exn]. The text should
 describe when this might occur. [@raises] is a synonym for this tag.
-- [@return text] - describes the return value. [@returns] is a synonym for this.
-- [@before version text] - Allows differences in past behaviour to be described.
+- [@return <text>] - describes the return value. [@returns] is a synonym for this.
+- [@before <version> <text>] - Allows differences in past behaviour to be described.
 This is intended to be used to document compatibility issues.
-- [@see < URL > text] - Add a reference to the URL with [text] as a comment.
-- [@see 'filename' text] - Add a reference to the given file (written between
+- [@see <<URL>> <text>] - Add a reference to the URL (written between [<] and
+[>] delimiters) with [text] as a comment.
+- [@see '<filename>' <text>] - Add a reference to the given file (written between
 single quotes), with the given text as comment. {e Note:} [odoc] currently
 doesn't turn this into a link in the output HTML.
-- [@see "document-name" text] - Adds a reference to the given document name
+- [@see "<document-name>" <text>] - Adds a reference to the given document name
 (written between double quotes), with the given text as comment. {e Note:} 
 As with the file reference, [odoc] doesn't turn this into a link.
+
+{2 Mathematics}
+
+Odoc 2.2 introduced new markup for maths, available both for inline and block
+content. The syntax for the maths itself is LaTeX and it is rendered by {{:https://katex.org/}KaTeX}
+in HTML output, dropped inline in the LaTeX output, and ignored in the man-page
+renderer.
+
+To render maths inline, use [{m <latex>}] and for block mode use [{math <latex>}].
+
+This is an inline equation: {m x=\frac{-b \pm \sqrt{b^2-4ac}}{2a}}, and rendered
+in block form this becomes:
+
+{math x=\frac{-b \pm \sqrt{b^2-4ac}}{2a}}
+
+See the {{:https://katex.org/docs/supported.html}KaTeX documentation} for the
+HTML mode LaTeX support status.
 
 {2 Stop Comments}
 
@@ -683,23 +725,27 @@ contents and thus should be used to introduce examples, comments or other
 complementary notes. An alternative would be to consider splitting into
 multiple files.
 
+Finally, documentation pages should start with a level-0 heading, see
+{!section-"page-title"}. Level-0 headings should not be used elsewhere.
+
 The syntax for declaring sections is as follows:
 
 {v
-{[0-6] text}
+{[0-5] <text>}
 v}
 or
 {v
-{[0-6]:label text}
+{[0-5]:<label> <text>}
 v}
-where the number represents the sectioning level. [0] is reserved for page titles
-for [.mld] files. [label] is an optional label for the section, allowing it to be
-referenced via the [{!label-...}] reference. For example:
+
+where the number represents the sectioning level. [<label>] is an optional label
+for the section, allowing it to be referenced via the [{!section-<label>}] reference.
+For example:
 
 {v
 {2:foobar Foo Bar}
 ...
-See {!label-foobar} for details
+See {!section-foobar} for details
 v}
 
 In this case the reference text would be "Foo Bar" so the paragraph would read
@@ -714,7 +760,7 @@ name in the reference link as follows:
 {v
 {2:foo-bar Foo Bar}
 ...
-See {!label-"foo-bar"} for details
+See {!section-"foo-bar"} for details
 v}
 
 You can use [_] instead of [-] to avoid this syntax.

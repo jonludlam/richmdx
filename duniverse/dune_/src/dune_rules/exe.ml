@@ -1,6 +1,5 @@
 open Import
 module CC = Compilation_context
-module SC = Super_context
 
 module Program = struct
   type t =
@@ -29,23 +28,25 @@ module Linkage = struct
 
   let is_native x = x.mode = Native
 
-  let is_js x = x.mode = Byte && x.ext = ".bc.js"
+  let is_js x = x.mode = Byte && x.ext = Js_of_ocaml.Ext.exe
 
   let is_byte x = x.mode = Byte && not (is_js x)
 
-  let custom context =
+  let custom_with_ext ~ext context =
     { mode = Byte_with_stubs_statically_linked_in
-    ; ext = ".exe"
+    ; ext
     ; flags =
         [ Ocaml.Version.custom_or_output_complete_exe context.Context.version ]
     }
+
+  let custom = custom_with_ext ~ext:".exe"
 
   let native_or_custom (context : Context.t) =
     match context.ocamlopt with
     | Error _ -> custom context
     | Ok _ -> native
 
-  let js = { mode = Byte; ext = ".bc.js"; flags = [] }
+  let js = { mode = Byte; ext = Js_of_ocaml.Ext.exe; flags = [] }
 
   let is_plugin t =
     List.mem (List.map ~f:Mode.plugin_ext Mode.all) t.ext ~equal:String.equal
@@ -131,10 +132,9 @@ let exe_path_from_name cctx ~name ~(linkage : Linkage.t) =
   Path.Build.relative (CC.dir cctx) (name ^ linkage.ext)
 
 let link_exe ~loc ~name ~(linkage : Linkage.t) ~cm_files ~link_time_code_gen
-    ~promote ?(link_args = Action_builder.return Command.Args.empty)
-    ?(o_files = []) ?(sandbox = Sandbox_config.default) cctx =
+    ~promote ~link_args ~o_files ?(sandbox = Sandbox_config.default) cctx =
   let sctx = CC.super_context cctx in
-  let ctx = SC.context sctx in
+  let ctx = Super_context.context sctx in
   let dir = CC.dir cctx in
   let mode = Link_mode.mode linkage.mode in
   let exe = exe_path_from_name cctx ~name ~linkage in
@@ -142,7 +142,7 @@ let link_exe ~loc ~name ~(linkage : Linkage.t) ~cm_files ~link_time_code_gen
   let fdo_linker_script = Fdo.Linker_script.create cctx (Path.build exe) in
   let open Memo.O in
   let* action_with_targets =
-    let ocaml_flags = Ocaml_flags.get (CC.flags cctx) mode in
+    let ocaml_flags = Ocaml_flags.get (CC.flags cctx) (Ocaml mode) in
     let prefix =
       Cm_files.top_sorted_objects_and_cms cm_files ~mode
       |> Action_builder.dyn_paths_unit
@@ -195,53 +195,62 @@ let link_exe ~loc ~name ~(linkage : Linkage.t) ~cm_files ~link_time_code_gen
           ]
     >>| Action.Full.add_sandbox sandbox
   in
-  SC.add_rule sctx ~loc ~dir
+  Super_context.add_rule sctx ~loc ~dir
     ~mode:
       (match promote with
       | None -> Standard
       | Some p -> Promote p)
     action_with_targets
 
-let link_js ~name ~loc ~cm_files ~promote ~link_time_code_gen cctx =
+let link_js ~name ~loc ~obj_dir ~top_sorted_modules ~link_args ~promote
+    ~link_time_code_gen cctx =
   let in_context =
     CC.js_of_ocaml cctx |> Option.value ~default:Js_of_ocaml.In_context.default
   in
-  let other_cm =
-    let open Memo.O in
-    let+ { Link_time_code_gen.to_link; force_linkall = _ } =
-      Resolve.read_memo link_time_code_gen
-    in
-    List.map to_link ~f:(function
-      | Lib_flags.Lib_and_module.Lib lib -> `Lib lib
-      | Module (obj_dir, m) ->
-        let path =
-          Obj_dir.Module.cm_file_exn obj_dir m ~kind:(Mode.cm_kind Byte)
-        in
-        `Mod path)
-  in
   let src = exe_path_from_name cctx ~name ~linkage:Linkage.byte_for_jsoo in
-  let top_sorted_cms = Cm_files.top_sorted_cms cm_files ~mode:Mode.Byte in
-  Jsoo_rules.build_exe cctx ~loc ~in_context ~src ~cm:top_sorted_cms ~promote
-    ~link_time_code_gen:other_cm
+  let linkall =
+    Action_builder.bind link_args ~f:(fun cmd ->
+        let open Action_builder.O in
+        let+ l =
+          Command.expand_no_targets ~dir:(Path.build (CC.dir cctx)) cmd
+        in
+        List.exists l ~f:(String.equal "-linkall"))
+  in
+  Jsoo_rules.build_exe cctx ~loc ~obj_dir ~in_context ~src ~top_sorted_modules
+    ~promote ~link_time_code_gen ~linkall
 
 type dep_graphs = { for_exes : Module.t list Action_builder.t list }
 
-let link_many ?link_args ?o_files ?(embed_in_plugin_libraries = []) ?sandbox
-    ~programs ~linkages ~promote cctx =
+let link_many ?(link_args = Action_builder.return Command.Args.empty) ?o_files
+    ?(embed_in_plugin_libraries = []) ?sandbox ~programs ~linkages ~promote cctx
+    =
   let open Memo.O in
+  let o_files =
+    match o_files with
+    | None -> Mode.Map.empty
+    | Some o_files -> o_files
+  in
   let modules = Compilation_context.modules cctx in
   let* link_time_code_gen = Link_time_code_gen.handle_special_libs cctx in
   let+ for_exes =
     Memo.parallel_map programs
       ~f:(fun { Program.name; main_module_name; loc } ->
         let top_sorted_modules =
-          let main = Option.value_exn (Modules.find modules main_module_name) in
+          let main =
+            match Modules.find modules main_module_name with
+            | Some m -> m
+            | None ->
+              Code_error.raise "link_many: unable to find module"
+                [ ("main_module_name", Module_name.to_dyn main_module_name)
+                ; ("modules", Modules.to_dyn modules)
+                ]
+          in
           Dep_graph.top_closed_implementations (CC.dep_graphs cctx).impl
             [ main ]
         in
         let cm_files =
           let sctx = CC.super_context cctx in
-          let ctx = SC.context sctx in
+          let ctx = Super_context.context sctx in
           let obj_dir = CC.obj_dir cctx in
           Cm_files.make ~obj_dir ~modules ~top_sorted_modules
             ~ext_obj:ctx.lib_config.ext_obj ()
@@ -249,7 +258,9 @@ let link_many ?link_args ?o_files ?(embed_in_plugin_libraries = []) ?sandbox
         let+ () =
           Memo.parallel_iter linkages ~f:(fun linkage ->
               if Linkage.is_js linkage then
-                link_js ~loc ~name ~cm_files ~promote cctx ~link_time_code_gen
+                let obj_dir = CC.obj_dir cctx in
+                link_js ~loc ~name ~obj_dir ~top_sorted_modules ~promote
+                  ~link_args cctx ~link_time_code_gen
               else
                 let* link_time_code_gen =
                   match Linkage.is_plugin linkage with
@@ -260,8 +271,17 @@ let link_many ?link_args ?o_files ?(embed_in_plugin_libraries = []) ?sandbox
                     in
                     Link_time_code_gen.handle_special_libs cc
                 in
+                let link_args, o_files =
+                  let select_o_files =
+                    Mode.Map.Multi.for_only ~and_all:true o_files
+                  in
+                  match linkage.mode with
+                  | Native -> (link_args, select_o_files Mode.Native)
+                  | Byte | Byte_for_jsoo | Byte_with_stubs_statically_linked_in
+                    -> (link_args, select_o_files Mode.Byte)
+                in
                 link_exe cctx ~loc ~name ~linkage ~cm_files ~link_time_code_gen
-                  ~promote ?link_args ?o_files ?sandbox)
+                  ~promote ~link_args ~o_files ?sandbox)
         in
         top_sorted_modules)
   in

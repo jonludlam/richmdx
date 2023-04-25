@@ -98,20 +98,22 @@ module Path = struct
     | `Page
     | `LeafPage
     | `ModuleType
-    | `Argument
+    | `Parameter of int
     | `Class
     | `ClassType
-    | `File ]
+    | `File
+    | `SourcePage ]
 
   let string_of_kind : kind -> string = function
     | `Page -> "page"
     | `Module -> "module"
     | `LeafPage -> "leaf-page"
     | `ModuleType -> "module-type"
-    | `Argument -> "argument"
+    | `Parameter arg_num -> Printf.sprintf "argument-%d" arg_num
     | `Class -> "class"
     | `ClassType -> "class-type"
     | `File -> "file"
+    | `SourcePage -> "source"
 
   let pp_kind fmt kind = Format.fprintf fmt "%s" (string_of_kind kind)
 
@@ -129,8 +131,8 @@ module Path = struct
           | None -> None
         in
         let kind = `Module in
-        let page = ModuleName.to_string unit_name in
-        mk ?parent kind page
+        let name = ModuleName.to_string unit_name in
+        mk ?parent kind name
     | { iv = `Page (parent, page_name); _ } ->
         let parent =
           match parent with
@@ -138,8 +140,8 @@ module Path = struct
           | None -> None
         in
         let kind = `Page in
-        let page = PageName.to_string page_name in
-        mk ?parent kind page
+        let name = PageName.to_string page_name in
+        mk ?parent kind name
     | { iv = `LeafPage (parent, page_name); _ } ->
         let parent =
           match parent with
@@ -147,41 +149,53 @@ module Path = struct
           | None -> None
         in
         let kind = `LeafPage in
-        let page = PageName.to_string page_name in
-        mk ?parent kind page
+        let name = PageName.to_string page_name in
+        mk ?parent kind name
     | { iv = `Module (parent, mod_name); _ } ->
         let parent = from_identifier (parent :> source) in
         let kind = `Module in
-        let page = ModuleName.to_string mod_name in
-        mk ~parent kind page
+        let name = ModuleName.to_string mod_name in
+        mk ~parent kind name
     | { iv = `Parameter (functor_id, arg_name); _ } as p ->
         let parent = from_identifier (functor_id :> source) in
-        let kind = `Argument in
         let arg_num = functor_arg_pos p in
-        let page =
-          Printf.sprintf "%d-%s" arg_num (ModuleName.to_string arg_name)
-        in
-        mk ~parent kind page
+        let kind = `Parameter arg_num in
+        let name = ModuleName.to_string arg_name in
+        mk ~parent kind name
     | { iv = `ModuleType (parent, modt_name); _ } ->
         let parent = from_identifier (parent :> source) in
         let kind = `ModuleType in
-        let page = ModuleTypeName.to_string modt_name in
-        mk ~parent kind page
+        let name = ModuleTypeName.to_string modt_name in
+        mk ~parent kind name
     | { iv = `Class (parent, name); _ } ->
         let parent = from_identifier (parent :> source) in
         let kind = `Class in
-        let page = ClassName.to_string name in
-        mk ~parent kind page
+        let name = ClassName.to_string name in
+        mk ~parent kind name
     | { iv = `ClassType (parent, name); _ } ->
         let parent = from_identifier (parent :> source) in
         let kind = `ClassType in
-        let page = ClassTypeName.to_string name in
-        mk ~parent kind page
+        let name = ClassTypeName.to_string name in
+        mk ~parent kind name
     | { iv = `Result p; _ } -> from_identifier (p :> source)
 
   let from_identifier p =
     from_identifier
       (p : [< source_pv ] Odoc_model.Paths.Identifier.id :> source)
+
+  let rec source_dir_from_identifier id =
+    match id.Odoc_model.Paths.Identifier.iv with
+    | `SourceRoot container -> from_identifier (container :> source)
+    | `SourceDir (parent, name) ->
+        let parent = source_dir_from_identifier parent in
+        let kind = `Page in
+        mk ~parent kind name
+
+  let source_file_from_identifier id =
+    let (`SourcePage (parent, name)) = id.Odoc_model.Paths.Identifier.iv in
+    let parent = source_dir_from_identifier parent in
+    let kind = `SourcePage in
+    mk ~parent kind name
 
   let to_list url =
     let rec loop acc { parent; name; kind } =
@@ -224,7 +238,8 @@ module Anchor = struct
     | `Method
     | `Val
     | `Constructor
-    | `Field ]
+    | `Field
+    | `SourceAnchor ]
 
   let string_of_kind : kind -> string = function
     | #Path.kind as k -> Path.string_of_kind k
@@ -237,6 +252,7 @@ module Anchor = struct
     | `Val -> "val"
     | `Constructor -> "constructor"
     | `Field -> "field"
+    | `SourceAnchor -> "source-anchor"
 
   let pp_kind fmt kind = Format.fprintf fmt "%s" (string_of_kind kind)
 
@@ -363,6 +379,11 @@ module Anchor = struct
             Error (Unexpected_anchor "core_type label parent")
         | { iv = `Type (gp, _); _ } -> mk ~kind:`Section gp str_name)
 
+  let source_file_from_identifier id ~anchor =
+    let kind = `SourceAnchor in
+    let page = Path.source_file_from_identifier id in
+    { page; anchor; kind }
+
   let polymorphic_variant ~type_ident elt =
     let name_of_type_constr te =
       match te with
@@ -393,6 +414,8 @@ module Anchor = struct
     let first_cons = Identifier.name (List.hd decl.constructors).id in
     let anchor = Format.asprintf "%a-%s" pp_kind kind first_cons in
     { page; kind; anchor }
+
+  let source_anchor path anchor = { page = path; anchor; kind = `SourceAnchor }
 end
 
 type kind = Anchor.kind

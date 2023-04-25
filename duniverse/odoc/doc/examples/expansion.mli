@@ -60,7 +60,7 @@ module Functors : sig
     (** This type [r] is declared in the Result module type *)
   end
 
-  module Functor : functor (X : Argument) (Y : Argument) -> Result
+  module Functor : functor (_ : Argument) (_ : Argument) -> Result
 end
 
 module Include : sig

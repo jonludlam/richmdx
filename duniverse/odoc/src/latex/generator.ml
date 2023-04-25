@@ -231,17 +231,14 @@ let source k (t : Source.t) =
   tokens t
 
 let rec internalref ~verbatim ~in_source (t : InternalLink.t) =
-  match t with
-  | Resolved (uri, content) ->
-      let target = Link.label uri in
-      let text = Some (inline ~verbatim ~in_source content) in
-      let short = in_source in
-      Internal_ref { short; text; target }
-  | Unresolved content ->
-      let target = "xref-unresolved" in
-      let text = Some (inline ~verbatim ~in_source content) in
-      let short = in_source in
-      Internal_ref { short; target; text }
+  let target =
+    match t.target with
+    | InternalLink.Resolved uri -> Link.label uri
+    | Unresolved -> "xref-unresolved"
+  in
+  let text = Some (inline ~verbatim ~in_source t.content) in
+  let short = in_source in
+  Internal_ref { short; target; text }
 
 and inline ~in_source ~verbatim (l : Inline.t) =
   let one (t : Inline.one) =
@@ -405,14 +402,21 @@ and items l =
         elts |> continue_with rest
     | Heading h :: rest -> heading h |> continue_with rest
     | Include
-        { attr = _; anchor; doc; content = { summary; status = _; content } }
+        {
+          attr = _;
+          source_anchor = _;
+          anchor;
+          doc;
+          content = { summary; status = _; content };
+        }
       :: rest ->
         let included = items content in
         let docs = block ~in_source:true doc in
         let summary = source (inline ~verbatim:false ~in_source:true) summary in
         let content = included in
         label anchor @ docs @ summary @ content |> continue_with rest
-    | Declaration { Item.attr = _; anchor; content; doc } :: rest ->
+    | Declaration { Item.attr = _; source_anchor = _; anchor; content; doc }
+      :: rest ->
         let content = label anchor @ documentedSrc content in
         let elts =
           match doc with
@@ -459,14 +463,16 @@ module Page = struct
     List.flatten @@ List.map (subpage ~with_children) subpages
 
   and page ~with_children p =
-    let { Page.title = _; header; items = i; url } =
-      Doctree.Labels.disambiguate_page p
+    let { Page.preamble; items = i; url; _ } =
+      Doctree.Labels.disambiguate_page ~enter_subpages:true p
     and subpages = subpages ~with_children @@ Doctree.Subpages.compute p in
     let i = Doctree.Shift.compute ~on_sub i in
-    let header = items header in
+    let header = items (Doctree.PageTitle.render_title p @ preamble) in
     let content = items i in
     let page = Doc.make ~with_children url (header @ content) subpages in
     page
 end
 
-let render ~with_children page = [ Page.page ~with_children page ]
+let render ~with_children = function
+  | Document.Page page -> [ Page.page ~with_children page ]
+  | Source_page _ -> []

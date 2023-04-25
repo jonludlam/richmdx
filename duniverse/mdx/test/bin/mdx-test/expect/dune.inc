@@ -36,6 +36,18 @@
  (action (diff code/test-case.md code.actual)))
 
 (rule
+ (target compenv-exit.actual)
+ (deps (package mdx) (source_tree compenv-exit))
+ (action
+  (with-stdout-to %{target}
+   (chdir compenv-exit
+    (run ocaml-mdx test --output - test-case.md)))))
+
+(rule
+ (alias runtest)
+ (action (diff compenv-exit/test-case.md.expected compenv-exit.actual)))
+
+(rule
  (target cram.actual)
  (deps (package mdx) (source_tree cram))
  (action
@@ -216,6 +228,30 @@
  (action (diff labels-syntax/test-case.md labels-syntax.actual)))
 
 (rule
+ (target labels-syntax-mli.actual)
+ (deps (package mdx) (source_tree labels-syntax-mli))
+ (action
+  (with-stdout-to %{target}
+   (chdir labels-syntax-mli
+    (run ocaml-mdx test --output - --syntax=mli test-case.mli)))))
+
+(rule
+ (alias runtest)
+ (action (diff labels-syntax-mli/test-case.mli labels-syntax-mli.actual)))
+
+(rule
+ (target line-delimiters.actual)
+ (deps (package mdx) (source_tree line-delimiters))
+ (action
+  (with-stdout-to %{target}
+   (chdir line-delimiters
+    (run ocaml-mdx test --output - test-case.md)))))
+
+(rule
+ (alias runtest)
+ (action (diff line-delimiters/test-case.md line-delimiters.actual)))
+
+(rule
  (target lines.actual)
  (deps (package mdx) (source_tree lines))
  (action
@@ -262,6 +298,18 @@
 (rule
  (alias runtest)
  (action (diff multilines/test-case.md multilines.actual)))
+
+(rule
+ (target multilines-mli.actual)
+ (deps (package mdx) (source_tree multilines-mli))
+ (action
+  (with-stdout-to %{target}
+   (chdir multilines-mli
+    (run ocaml-mdx test --output - test-case.mli)))))
+
+(rule
+ (alias runtest)
+ (action (diff multilines-mli/test-case.mli multilines-mli.actual)))
 
 (rule
  (target non-det.actual)
@@ -382,6 +430,18 @@
 (rule
  (alias runtest)
  (action (diff requires/test-case.md requires.actual)))
+
+(rule
+ (target rich-mdx.actual)
+ (deps (package mdx) (source_tree rich-mdx))
+ (action
+  (with-stdout-to %{target}
+   (chdir rich-mdx
+    (run ocaml-mdx test --output - test-case.mld)))))
+
+(rule
+ (alias runtest)
+ (action (diff rich-mdx/test-case.mld rich-mdx.actual)))
 
 (rule
  (target root-option.actual)

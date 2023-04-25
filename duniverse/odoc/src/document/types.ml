@@ -6,11 +6,9 @@ end =
   Class
 
 and InternalLink : sig
-  type resolved = Url.t * Inline.t
+  type target = Resolved of Url.t | Unresolved
 
-  type unresolved = Inline.t
-
-  type t = Resolved of resolved | Unresolved of Inline.t
+  type t = { target : target; content : Inline.t; tooltip : string option }
 end =
   InternalLink
 
@@ -65,7 +63,13 @@ end =
   Description
 
 and Heading : sig
-  type t = { label : string option; level : int; title : Inline.t }
+  type t = {
+    label : string option;
+    level : int;
+    title : Inline.t;
+    source_anchor : Url.t option;
+        (** Used for the source link of the item displayed on the page. *)
+  }
 end =
   Heading
 
@@ -142,9 +146,8 @@ and Item : sig
     anchor : Url.Anchor.t option;
     content : 'a;
     doc : Block.t;
+    source_anchor : Url.Anchor.t option;
   }
-
-  type declaration = DocumentedSrc.t item
 
   type text = Block.t
 
@@ -158,13 +161,29 @@ end =
 
 and Page : sig
   type t = {
-    title : string;
-    header : Item.t list;
+    preamble : Item.t list;
     items : Item.t list;
     url : Url.Path.t;
+    source_anchor : Url.t option;
+        (** Url to the corresponding source code. Might be a whole source file
+            or a sub part. *)
   }
 end =
   Page
+
+and Source_page : sig
+  type info = Syntax of string | Anchor of string | Link of Url.Anchor.t
+
+  type code = span list
+  and span = Tagged_code of info * code | Plain_code of string
+
+  type t = { url : Url.Path.t; contents : code }
+end =
+  Source_page
+
+module Document = struct
+  type t = Page of Page.t | Source_page of Source_page.t
+end
 
 let inline ?(attr = []) desc = Inline.{ attr; desc }
 

@@ -1,5 +1,6 @@
 open! Stdune
 module Inotify_lib = Async_inotify_for_dune.Async_inotify
+module Console = Dune_console
 
 module Fs_memo_event = struct
   type kind =
@@ -136,6 +137,10 @@ type kind =
       ; latency : float
       }
   | Inotify of Inotify_lib.t
+  | Fswatch_win of
+      { t : Fswatch_win.t
+      ; scheduler : Scheduler.t
+      }
 
 type t =
   { kind : kind
@@ -155,6 +160,9 @@ let exclude_patterns =
   ; {|/#[^#]*#$|}
   ; {|^4913$|} (* https://github.com/neovim/neovim/issues/3460 *)
   ; {|/4913$|}
+  ; {|/.git|}
+  ; {|/.hg|}
+  ; {|:/windows|}
   ]
 
 module Re = Dune_re
@@ -202,6 +210,7 @@ let shutdown t =
         Fsevents.stop fsevents.sync;
         Watch_trie.to_list fsevents.external_
         |> List.iter ~f:(fun (_, fs) -> Fsevents.stop fs))
+  | Fswatch_win { t; _ } -> `Thunk (fun () -> Fswatch_win.shutdown t)
 
 let buffer_capacity = 65536
 
@@ -254,7 +263,7 @@ module Fs_sync : sig
   val is_special_file : path_as_reported_by_file_watcher:string -> bool
 
   (** fsevents always reports absolute paths. therefore, we need callers to make
-      an effort to determine if an abosulte path is in fact in the build dir *)
+      an effort to determine if an absolute path is in fact in the build dir *)
   val is_special_file_fsevents : Path.t -> bool
 
   val consume_event : (string, 'a) Table.t -> string -> 'a option
@@ -340,7 +349,7 @@ let command ~root ~backend =
 let fswatch_backend () =
   let try_fswatch () =
     Option.map
-      (Bin.which ~path:(Env.path Env.initial) "fswatch")
+      (Bin.which ~path:(Env_path.path Env.initial) "fswatch")
       ~f:(fun fswatch -> `Fswatch fswatch)
   in
   match try_fswatch () with
@@ -353,6 +362,7 @@ let select_watcher_backend () =
     assert (Ocaml_inotify.Inotify.supported_by_the_os ());
     `Inotify_lib)
   else if Fsevents.available () then `Fsevents
+  else if Sys.win32 then `Fswatch_win
   else fswatch_backend ()
 
 let prepare_sync () =
@@ -485,29 +495,37 @@ let create_inotifylib ~scheduler =
   Inotify_lib.add inotify (Lazy.force Fs_sync.special_dir);
   { kind = Inotify inotify; sync_table }
 
-let fsevents_callback (scheduler : Scheduler.t) ~f events =
+let fsevents_callback ?exclusion_paths (scheduler : Scheduler.t) ~f events =
+  let skip_path =
+    (* excluding a [path] will exclude children under [path] but not [path]
+       itself. Hence we need to skip [path] manually *)
+    match exclusion_paths with
+    | None -> fun _ -> false
+    | Some paths -> fun p -> List.mem paths p ~equal:Path.equal
+  in
   scheduler.thread_safe_send_emit_events_job (fun () ->
       List.filter_map events ~f:(fun event ->
           let path =
             Fsevents.Event.path event |> Path.of_string
             |> Path.Expert.try_localize_external
           in
-          f event path))
+          if skip_path path then None else f event path))
 
 let fsevents ?exclusion_paths ~latency ~paths scheduler f =
   let paths = List.map paths ~f:Path.to_absolute_filename in
   let fsevents =
-    Fsevents.create ~latency ~paths ~f:(fsevents_callback scheduler ~f)
+    Fsevents.create ~latency ~paths
+      ~f:(fsevents_callback ?exclusion_paths scheduler ~f)
   in
   Option.iter exclusion_paths ~f:(fun paths ->
+      let paths = List.rev_map paths ~f:Path.to_absolute_filename in
       Fsevents.set_exclusion_paths fsevents ~paths);
   fsevents
 
 let fsevents_standard_event event path =
-  let action = Fsevents.Event.action event in
   let kind =
-    match action with
-    | Unknown -> Fs_memo_event.Unknown
+    match Fsevents.Event.action event with
+    | Rename | Unknown -> Fs_memo_event.Unknown
     | Create -> Created
     | Remove -> Deleted
     | Modify ->
@@ -530,7 +548,7 @@ let create_fsevents ?(latency = 0.2) ~(scheduler : Scheduler.t) () =
         else
           match Fsevents.Event.action event with
           | Remove -> None
-          | Unknown | Create | Modify ->
+          | Rename | Unknown | Create | Modify ->
             Option.map (Fs_sync.consume_event sync_table path) ~f:(fun id ->
                 Event.Sync id))
   in
@@ -542,7 +560,6 @@ let create_fsevents ?(latency = 0.2) ~(scheduler : Scheduler.t) () =
          |> List.rev_map ~f:(fun base ->
                 let path = Path.relative (Path.source Path.Source.root) base in
                 path))
-      |> List.rev_map ~f:Path.to_absolute_filename
     in
     fsevents ~latency scheduler ~exclusion_paths ~paths fsevents_standard_event
   in
@@ -574,6 +591,48 @@ let create_fsevents ?(latency = 0.2) ~(scheduler : Scheduler.t) () =
   ; sync_table
   }
 
+let fswatch_win_callback ~(scheduler : Scheduler.t) ~sync_table event =
+  let dir = Fswatch_win.Event.directory event in
+  let filename = Filename.concat dir (Fswatch_win.Event.path event) in
+  let localized_path =
+    Path.Expert.try_localize_external (Path.of_string filename)
+  in
+  match localized_path with
+  | In_build_dir _ -> (
+    if Fs_sync.is_special_file_fsevents localized_path then
+      match Fswatch_win.Event.action event with
+      | Added | Modified -> (
+        match Fs_sync.consume_event sync_table filename with
+        | None -> ()
+        | Some id ->
+          scheduler.thread_safe_send_emit_events_job (fun () -> [ Sync id ]))
+      | Removed | Renamed_new | Renamed_old -> ())
+  | path ->
+    let normalized_filename =
+      String.concat ~sep:"/"
+        (String.split_on_char ~sep:'\\' (String.lowercase_ascii filename))
+    in
+    if not (should_exclude normalized_filename) then
+      scheduler.thread_safe_send_emit_events_job (fun () ->
+          let kind =
+            match Fswatch_win.Event.action event with
+            | Added | Renamed_new -> Fs_memo_event.Created
+            | Removed | Renamed_old -> Deleted
+            | Modified -> File_changed
+          in
+          [ Fs_memo_event { kind; path } ])
+
+let create_fswatch_win ~(scheduler : Scheduler.t) ~debounce_interval:sleep =
+  let sync_table = Table.create (module String) 64 in
+  let t = Fswatch_win.create () in
+  Fswatch_win.add t (Path.to_absolute_filename Path.root);
+  scheduler.spawn_thread (fun () ->
+      while true do
+        let events = Fswatch_win.wait t ~sleep in
+        List.iter ~f:(fswatch_win_callback ~scheduler ~sync_table) events
+      done);
+  { kind = Fswatch_win { t; scheduler }; sync_table }
+
 let create_external ~root ~debounce_interval ~scheduler ~backend =
   match debounce_interval with
   | None -> create_no_buffering ~root ~scheduler ~backend
@@ -589,14 +648,30 @@ let create_default ?fsevents_debounce ~scheduler () =
       ~debounce_interval:(Some 0.5 (* seconds *)) ~backend
   | `Fsevents -> create_fsevents ?latency:fsevents_debounce ~scheduler ()
   | `Inotify_lib -> create_inotifylib ~scheduler
+  | `Fswatch_win ->
+    create_fswatch_win ~scheduler ~debounce_interval:500 (* milliseconds *)
 
 let wait_for_initial_watches_established_blocking t =
   match t.kind with
   | Fswatch c -> c.wait_for_watches_established ()
-  | Fsevents _ | Inotify _ ->
+  | Fsevents _ | Inotify _ | Fswatch_win _ ->
     (* no initial watches needed: all watches should be set up at the time just
        before file access *)
     ()
+
+(* Return the parent directory of [ext] if [ext] denotes a file. *)
+let parent_directory ext =
+  let rec loop p =
+    if Path.is_directory (Path.external_ p) then Some ext
+    else
+      match Path.External.parent p with
+      | None ->
+        User_warning.emit
+          [ Pp.textf "Refusing to watch %s" (Path.External.to_string ext) ];
+        None
+      | Some ext -> loop ext
+  in
+  loop ext
 
 let add_watch t path =
   match t.kind with
@@ -606,21 +681,7 @@ let add_watch t path =
     | In_build_dir _ ->
       Code_error.raise "attempted to watch a directory in build" []
     | External ext -> (
-      let ext =
-        let rec loop p =
-          if Path.is_directory (Path.external_ p) then Some ext
-          else
-            match Path.External.parent p with
-            | None ->
-              User_warning.emit
-                [ Pp.textf "Refusing to watch %s" (Path.External.to_string ext)
-                ];
-              None
-            | Some ext -> loop ext
-        in
-        loop ext
-      in
-      match ext with
+      match parent_directory ext with
       | None -> Ok ()
       | Some ext -> (
         let watch =
@@ -644,5 +705,16 @@ let add_watch t path =
   | Inotify inotify -> (
     try Ok (Inotify_lib.add inotify (Path.to_string path))
     with Unix.Unix_error (ENOENT, _, _) -> Error `Does_not_exist)
+  | Fswatch_win fswatch -> (
+    match path with
+    | In_build_dir _ ->
+      Code_error.raise "attempted to watch a directory in build" []
+    | Path.In_source_tree _ -> Ok ()
+    | External ext -> (
+      match parent_directory ext with
+      | None -> Ok ()
+      | Some _ ->
+        Fswatch_win.add fswatch.t (Path.to_absolute_filename path);
+        Ok ()))
 
 let emit_sync = Fs_sync.emit

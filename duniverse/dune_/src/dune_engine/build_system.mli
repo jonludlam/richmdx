@@ -3,10 +3,8 @@
 open Import
 module Action_builder := Action_builder0
 
-(** {1 Requests} *)
-
-(** Build a file and return the digest of its contents. *)
-val build_file : Path.t -> Digest.t Memo.t
+(** Build a file. *)
+val build_file : Path.t -> unit Memo.t
 
 (** Build a file and access its contents with [f]. *)
 val read_file : Path.t -> f:(Path.t -> 'a) -> 'a Memo.t
@@ -59,16 +57,16 @@ val run_exn : (unit -> 'a Memo.t) -> 'a Fiber.t
 (** {2 Misc} *)
 
 module Progress : sig
+  (** Measures for the progress of the build. *)
+
   type t =
     { number_of_rules_discovered : int
     ; number_of_rules_executed : int
+    ; number_of_rules_failed : int
     }
 
-  val equal : t -> t -> bool
-
-  val complete : t -> int
-
-  val remaining : t -> int
+  (** Initialize with zeros on all measures. *)
+  val init : t
 end
 
 module State : sig
@@ -86,8 +84,6 @@ val state : State.t Fiber.Svar.t
 
 (** Errors found when building targets. *)
 module Error : sig
-  type t
-
   module Id : sig
     type t
 
@@ -99,6 +95,20 @@ module Error : sig
 
     val to_dyn : t -> Dyn.t
   end
+
+  type t
+
+  val id : t -> Id.t
+
+  (** the directory where the rule the error is originating from *)
+  val dir : t -> Path.t option
+
+  (** The description of the error. Errors from build rules contain useful
+      metadata that are extracted into [`Diagnostic] *)
+  val description :
+    t -> [ `Exn of Exn_with_backtrace.t | `Diagnostic of Compound_user_error.t ]
+
+  val promotion : t -> Diff_promotion.Annot.t option
 
   module Event : sig
     type nonrec t =
@@ -121,14 +131,6 @@ module Error : sig
 
     val empty : t
   end
-
-  val create : exn:Exn_with_backtrace.t -> t
-
-  val info : t -> User_message.t * User_message.t list * Path.t option
-
-  val promotion : t -> Diff_promotion.Annot.t option
-
-  val id : t -> Id.t
 end
 
 (** The current set of active errors. *)

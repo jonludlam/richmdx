@@ -26,7 +26,7 @@ let test_of_block =
     | Ok labels -> (
         match
           Mdx.Block.mk ~loc:Location.none ~section:None ~labels ~header:None
-            ~contents:[] ~legacy_labels:false ~errors:[]
+            ~delim:None ~contents:[] ~legacy_labels:false ~errors:[]
         with
         | Ok block -> block
         | Error _ -> assert false)
@@ -50,9 +50,10 @@ let test_of_line =
     let test_name = Printf.sprintf "of_line: %S" line_des in
     let test_fun () =
       let actual =
-        Mdx.of_string Mdx.Normal lines >>| fun lines -> Mdx.Dep.of_lines lines
+        let+ lines = Mdx.of_string Mdx.Syntax.Markdown lines in
+        Mdx.Dep.of_lines lines
       in
-      Alcotest.(check (result (list Testable.dep) Testable.msg))
+      Alcotest.(check (result (list Testable.dep) (list Testable.msg)))
         test_name expected actual
     in
     (test_name, `Quick, test_fun)
@@ -79,8 +80,7 @@ Tata
   in
   [
     make_test ~lines ~line_des:"block: file=tikitaka.ml"
-      ~expected:(Ok [ File "tikitaka.ml" ])
-      ();
+      ~expected:(Ok [ File "tikitaka.ml" ]) ();
     make_test ~lines:lines2 ~line_des:"skip + file + dir"
       ~expected:(Ok [ File "burn.sh"; Dir "ping/" ])
       ();

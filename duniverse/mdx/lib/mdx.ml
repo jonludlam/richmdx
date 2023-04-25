@@ -23,7 +23,6 @@ module Cram = Cram
 module Deprecated = Deprecated
 module Document = Document
 module Toplevel = Toplevel
-module Ocaml_delimiter = Ocaml_delimiter
 module Part = Part
 module Block = Block
 module Mli_parser = Mli_parser
@@ -56,29 +55,35 @@ let filter_section re (t : t) =
   | l -> Some l
 
 let parse l =
-  List.map
-    (function
-      | `Text t -> Text t | `Section s -> Section s | `Block b -> Block b)
-    l
+  let results =
+    List.map
+      (function
+        | `Text t -> Ok (Text t)
+        | `Section s -> Ok (Section s)
+        | `Block rb ->
+            let* b = Block.from_raw rb in
+            Ok (Block b))
+      l
+  in
+  let ok, errors = Util.Result.List.split results in
+  match errors with [] -> Ok ok | _ -> Error (List.concat errors)
 
-let parse_lexbuf file_contents syntax l =
+let parse_lexbuf syntax Misc.{ string; lexbuf } =
   match syntax with
-  | Syntax.Mli -> Mli_parser.parse_mli file_contents
-  | Syntax.Mld ->
-      Mli_parser.parse_mld ~fname:l.Lexing.lex_start_p.pos_fname
-        ~text:file_contents
-  | Normal -> Lexer_mdx.markdown_token l >>| parse
-  | Cram -> Lexer_mdx.cram_token l >>| parse
+  | Syntax.Mli -> Mli_parser.parse_mli string
+  | Syntax.Mld -> Mli_parser.parse_mld string
+  | Markdown ->
+      Util.Result.to_error_list @@ Lexer_mdx.markdown_token lexbuf >>= parse
+  | Cram -> Util.Result.to_error_list @@ Lexer_mdx.cram_token lexbuf >>= parse
 
-let parse_file syntax f =
-  let l = snd (Misc.init f) in
-  parse_lexbuf f syntax l
+let parse_file syntax f = Misc.load_file ~filename:f |> parse_lexbuf syntax
 
 let of_string syntax s =
   match syntax with
   | Syntax.Mli -> Mli_parser.parse_mli s
-  | Syntax.Mld -> Mli_parser.parse_mld ~fname:"__unknown__" ~text:s
-  | Syntax.Normal | Syntax.Cram -> parse_lexbuf s syntax (Lexing.from_string s)
+  | Syntax.Mld -> Mli_parser.parse_mld s
+  | Syntax.Markdown | Syntax.Cram ->
+      Misc.{ lexbuf = Lexing.from_string s; string = s } |> parse_lexbuf syntax
 
 let dump_line ppf (l : line) =
   match l with
@@ -91,11 +96,11 @@ let dump = Fmt.Dump.list dump_line
 type expect_result = Identical | Differs
 
 let run_str ~syntax ~f file =
-  let file_contents, lexbuf = Misc.init file in
-  parse_lexbuf file_contents syntax lexbuf >>| fun items ->
+  let l = Misc.load_file ~filename:file in
+  let+ items = parse_lexbuf syntax l in
   Log.debug (fun l -> l "run @[%a@]" dump items);
-  let corrected = f file_contents items in
-  let has_changed = corrected <> file_contents in
+  let corrected = f l.string items in
+  let has_changed = corrected <> l.string in
   let result = if has_changed then Differs else Identical in
   (result, corrected)
 
@@ -104,16 +109,17 @@ let write_file ~outfile content =
   output_string oc content;
   close_out oc
 
-let run_to_stdout ?(syntax = Normal) ~f infile =
-  run_str ~syntax ~f infile >>| fun (_, corrected) -> print_string corrected
+let run_to_stdout ?(syntax = Syntax.Markdown) ~f infile =
+  let+ _, corrected = run_str ~syntax ~f infile in
+  print_string corrected
 
-let run_to_file ?(syntax = Normal) ~f ~outfile infile =
-  run_str ~syntax ~f infile >>| fun (_, corrected) ->
+let run_to_file ?(syntax = Syntax.Markdown) ~f ~outfile infile =
+  let+ _, corrected = run_str ~syntax ~f infile in
   write_file ~outfile corrected
 
-let run ?(syntax = Normal) ?(force_output = false) ~f infile =
+let run ?(syntax = Syntax.Markdown) ?(force_output = false) ~f infile =
   let outfile = infile ^ ".corrected" in
-  run_str ~syntax ~f infile >>| fun (test_result, corrected) ->
+  let+ test_result, corrected = run_str ~syntax ~f infile in
   match (force_output, test_result) with
   | true, _ | false, Differs -> write_file ~outfile corrected
   | false, Identical -> if Sys.file_exists outfile then Sys.remove outfile

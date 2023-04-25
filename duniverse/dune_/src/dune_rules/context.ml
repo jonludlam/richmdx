@@ -38,7 +38,7 @@ module Bin = struct
     let prog = add_exe prog in
     Memo.List.find_map path ~f:(fun dir ->
         let fn = Path.relative dir prog in
-        let+ exists = Fs_memo.file_exists fn in
+        let+ exists = Fs_memo.file_exists (Path.as_outside_build_dir_exn fn) in
         if exists then Some fn else None)
 end
 
@@ -51,7 +51,7 @@ module Program = struct
   let best_path dir program =
     let exe_path program =
       let fn = Path.relative dir (program ^ Bin.exe) in
-      let+ exists = Fs_memo.file_exists fn in
+      let+ exists = Fs_memo.file_exists (Path.as_outside_build_dir_exn fn) in
       if exists then Some fn else None
     in
     if List.mem programs_for_which_we_prefer_opt_ext program ~equal:String.equal
@@ -181,12 +181,12 @@ module Opam : sig
 end = struct
   let opam =
     Memo.Lazy.create ~name:"context-opam" (fun () ->
-        Bin.which ~path:(Env.path Env.initial) "opam" >>= function
+        Bin.which ~path:(Env_path.path Env.initial) "opam" >>= function
         | None -> Utils.program_not_found "opam" ~loc:None
         | Some opam -> (
           let+ version =
             Memo.of_reproducible_fiber
-              (Process.run_capture_line Strict opam
+              (Process.run_capture_line ~display:!Clflags.display Strict opam
                  [ "--version"; "--color=never" ])
           in
           match Scanf.sscanf version "%d.%d.%d" (fun a b c -> (a, b, c)) with
@@ -222,7 +222,8 @@ end = struct
           ]
       in
       let+ s =
-        Memo.of_reproducible_fiber (Process.run_capture ~env Strict opam args)
+        Memo.of_reproducible_fiber
+          (Process.run_capture ~display:!Clflags.display ~env Strict opam args)
       in
       Dune_lang.Parser.parse_string ~fname:"<opam output>" ~mode:Single s
       |> Dune_lang.Decoder.(
@@ -312,7 +313,8 @@ let ocamlfind_printconf_path ~env ~ocamlfind ~toolchain =
   in
   let+ l =
     Memo.of_reproducible_fiber
-      (Process.run_capture_lines ~env Strict ocamlfind args)
+      (Process.run_capture_lines ~display:!Clflags.display ~env Strict ocamlfind
+         args)
   in
   List.map l ~f:Path.of_filename_relative_to_initial_cwd
 
@@ -346,6 +348,11 @@ let check_fdo_support has_native ocfg ~name =
             version_string
         ]
 
+type instance =
+  { native : t
+  ; targets : t list
+  }
+
 let create ~(kind : Kind.t) ~path ~env ~env_nodes ~name ~merlin ~targets
     ~host_context ~host_toolchain ~profile ~fdo_target_exe
     ~dynamically_linked_foreign_archives ~instrument_with =
@@ -359,7 +366,7 @@ let create ~(kind : Kind.t) ~path ~env ~env_nodes ~name ~merlin ~targets
     | Some x -> x
   in
   let findlib_config_path =
-    Memo.lazy_ ~cutoff:Path.equal (fun () ->
+    Memo.lazy_ ~cutoff:Path.External.equal (fun () ->
         let* fn = which_exn "ocamlfind" in
         (* When OCAMLFIND_CONF is set, "ocamlfind printconf" does print the
            contents of the variable, but "ocamlfind printconf conf" still prints
@@ -369,8 +376,9 @@ let create ~(kind : Kind.t) ~path ~env ~env_nodes ~name ~merlin ~targets
         | Some s -> Memo.return s
         | None ->
           Memo.of_reproducible_fiber
-            (Process.run_capture_line ~env Strict fn [ "printconf"; "conf" ]))
-        >>| Path.of_filename_relative_to_initial_cwd)
+            (Process.run_capture_line ~display:!Clflags.display ~env Strict fn
+               [ "printconf"; "conf" ]))
+        >>| Path.External.of_filename_relative_to_initial_cwd)
   in
   let create_one ~(name : Context_name.t) ~implicit ~findlib_toolchain ~host
       ~merlin =
@@ -381,7 +389,7 @@ let create ~(kind : Kind.t) ~path ~env ~env_nodes ~name ~merlin ~targets
         let* path = Memo.Lazy.force findlib_config_path in
         let toolchain = Context_name.to_string toolchain in
         let context = Context_name.to_string name in
-        let+ config = Findlib.Config.load path ~toolchain ~context in
+        let+ config = Findlib.Config.load (External path) ~toolchain ~context in
         Some config
     in
     let get_tool_using_findlib_config prog =
@@ -476,7 +484,8 @@ let create ~(kind : Kind.t) ~path ~env ~env_nodes ~name ~merlin ~targets
       Memo.fork_and_join default_library_search_path (fun () ->
           let+ lines =
             Memo.of_reproducible_fiber
-              (Process.run_capture_lines ~env Strict ocamlc [ "-config" ])
+              (Process.run_capture_lines ~display:!Clflags.display ~env Strict
+                 ocamlc [ "-config" ])
           in
           ocaml_config_ok_exn
             (match Ocaml_config.Vars.of_lines lines with
@@ -514,9 +523,8 @@ let create ~(kind : Kind.t) ~path ~env ~env_nodes ~name ~merlin ~targets
       else env
     in
     let env =
-      let cwd = Sys.getcwd () in
       let extend_var var ?(path_sep = Bin.path_sep) v =
-        let v = Filename.concat cwd (Path.Build.to_string v) in
+        let v = Path.to_absolute_filename (Path.build v) in
         match Env.get env var with
         | None -> (var, v)
         | Some prev -> (var, sprintf "%s%c%s" v path_sep prev)
@@ -681,7 +689,7 @@ let create ~(kind : Kind.t) ~path ~env ~env_nodes ~name ~merlin ~targets
           ~findlib_toolchain:(Some findlib_toolchain)
         >>| Option.some)
   in
-  native :: List.filter_opt others
+  { native; targets = List.filter_opt others }
 
 let which t fname = Program.which ~path:t.path fname
 
@@ -689,7 +697,7 @@ let extend_paths t ~env =
   let t =
     let f (var, t) =
       let parse ~loc:_ s = s in
-      let standard = Env.path env |> List.map ~f:Path.to_string in
+      let standard = Env_path.path env |> List.map ~f:Path.to_string in
       (var, Ordered_set_lang.eval t ~parse ~standard ~eq:String.equal)
     in
     List.map ~f t
@@ -707,7 +715,7 @@ let extend_paths t ~env =
 
 let default ~merlin ~env_nodes ~env ~targets ~fdo_target_exe
     ~dynamically_linked_foreign_archives ~instrument_with =
-  let path = Env.path env in
+  let path = Env_path.path env in
   create ~kind:Default ~path ~env ~env_nodes ~merlin ~targets ~fdo_target_exe
     ~dynamically_linked_foreign_archives ~instrument_with
 
@@ -725,7 +733,7 @@ let create_for_opam ~loc ~root ~env ~env_nodes ~targets ~profile ~switch ~name
       ];
   let path =
     match Env.Map.find vars "PATH" with
-    | None -> Env.path env
+    | None -> Env_path.path env
     | Some s -> Bin.parse_path s
   in
   let env = Env.extend env ~vars in
@@ -736,9 +744,9 @@ let create_for_opam ~loc ~root ~env ~env_nodes ~targets ~profile ~switch ~name
     ~instrument_with
 
 module rec Instantiate : sig
-  val instantiate : Context_name.t -> t list Memo.t
+  val instantiate : Context_name.t -> instance Memo.t
 end = struct
-  let instantiate_impl name : t list Memo.t =
+  let instantiate_impl name : instance Memo.t =
     let env = Global.env () in
     let* workspace = Workspace.workspace () in
     let context =
@@ -748,13 +756,9 @@ end = struct
     let* host_context =
       match Workspace.Context.host_context context with
       | None -> Memo.return None
-      | Some context_name -> (
-        let+ contexts = Instantiate.instantiate context_name in
-        match contexts with
-        | [ x ] -> Some x
-        | [] -> assert false (* checked by workspace *)
-        | _ :: _ -> assert false)
-      (* target cannot be host *)
+      | Some context_name ->
+        let+ { native; targets = _ } = Instantiate.instantiate context_name in
+        Some native
     in
     let env_nodes =
       let context = Workspace.Context.env context in
@@ -827,7 +831,10 @@ module DB = struct
       let* workspace = Workspace.workspace () in
       let+ contexts =
         Memo.parallel_map workspace.contexts ~f:(fun c ->
-            Instantiate.instantiate (Workspace.Context.name c))
+            let+ { native; targets } =
+              Instantiate.instantiate (Workspace.Context.name c)
+            in
+            native :: targets)
       in
       let all = List.concat contexts in
       List.iter all ~f:(fun t ->
@@ -865,7 +872,7 @@ module DB = struct
     get context
 end
 
-let compiler t (mode : Mode.t) =
+let compiler t (mode : Ocaml.Mode.t) =
   match mode with
   | Byte -> Ok t.ocamlc
   | Native -> t.ocamlopt
@@ -973,13 +980,12 @@ let gen_configurator_rules t =
                  ])))))
 
 let force_configurator_files =
-  Memo.lazy_ (fun () ->
+  Memo.lazy_ ~name:"force-configuration-files" (fun () ->
       let* ctxs = DB.all () in
       let files =
         List.concat_map ctxs ~f:(fun t ->
             [ Path.build (configurator_v1 t); Path.build (configurator_v2 t) ])
       in
-      Memo.parallel_iter files ~f:(fun file ->
-          Build_system.build_file file >>| ignore))
+      Memo.parallel_iter files ~f:Build_system.build_file)
 
 let make t = Memo.Lazy.force t.make

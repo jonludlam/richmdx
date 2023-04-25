@@ -10,6 +10,16 @@ module Context_name = Dune_engine.Context_name
 let package_name = conv Package.Name.conv
 
 module Path = struct
+  module External = struct
+    type t = string
+
+    let path p = Path.External.of_filename_relative_to_initial_cwd p
+
+    let arg s = s
+
+    let conv = conv ((fun p -> Ok p), Format.pp_print_string)
+  end
+
   type t = string
 
   let path p = Path.of_filename_relative_to_initial_cwd p
@@ -20,6 +30,8 @@ module Path = struct
 end
 
 let path = Path.conv
+
+let external_path = Path.External.conv
 
 let profile = conv Dune_rules.Profile.conv
 
@@ -59,15 +71,15 @@ module Dep = struct
 
   let parser s =
     match parse_alias s with
-    | Some dep -> `Ok dep
+    | Some dep -> Ok dep
     | None -> (
       match
         Dune_lang.Decoder.parse dep_parser Univ_map.empty
           (Dune_lang.Parser.parse_string ~fname:"command line"
              ~mode:Dune_lang.Parser.Mode.Single s)
       with
-      | x -> `Ok x
-      | exception User_error.E msg -> `Error (User_message.to_string msg))
+      | x -> Ok x
+      | exception User_error.E msg -> Error (User_message.to_string msg))
 
   let string_of_alias ~recursive sv =
     let prefix = if recursive then "@" else "@@" in
@@ -88,7 +100,7 @@ module Dep = struct
     in
     Format.pp_print_string ppf s
 
-  let conv = (parser, printer)
+  let conv = conv' (parser, printer)
 
   let to_string_maybe_quoted t =
     String.maybe_quoted (Format.asprintf "%a" printer t)

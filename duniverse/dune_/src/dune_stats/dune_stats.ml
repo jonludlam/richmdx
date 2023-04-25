@@ -1,4 +1,5 @@
 open Stdune
+module Timestamp = Chrome_trace.Event.Timestamp
 module Event = Chrome_trace.Event
 
 module Mac = struct
@@ -63,11 +64,13 @@ type dst =
   | Custom of
       { write : string -> unit
       ; close : unit -> unit
+      ; flush : unit -> unit
       }
 
 type t =
   { print : string -> unit
   ; close : unit -> unit
+  ; flush : unit -> unit
   ; mutable after_first_event : bool
   }
 
@@ -88,7 +91,14 @@ let create dst =
     | Out out -> fun () -> Stdlib.close_out out
     | Custom c -> c.close
   in
-  { print; close; after_first_event = false }
+  let flush =
+    match dst with
+    | Out out -> fun () -> flush out
+    | Custom c -> c.flush
+  in
+  { print; close; after_first_event = false; flush }
+
+let flush t = t.flush ()
 
 let next_leading_char t =
   match t.after_first_event with
@@ -103,13 +113,47 @@ let printf t format_string =
 
 let emit t event = printf t "%s" (Json.to_string (Event.to_json event))
 
+type event_data =
+  { args : Chrome_trace.Event.args option
+  ; cat : string list option
+  ; name : string
+  }
+
+type event =
+  { t : t
+  ; event_data : event_data
+  ; start : float
+  }
+
+let start t k : event option =
+  match t with
+  | None -> None
+  | Some t ->
+    let event_data = k () in
+    let start = Unix.gettimeofday () in
+    Some { t; event_data; start }
+
+let finish event =
+  match event with
+  | None -> ()
+  | Some { t; start; event_data = { args; cat; name } } ->
+    let dur =
+      let stop = Unix.gettimeofday () in
+      Timestamp.of_float_seconds (stop -. start)
+    in
+    let common =
+      Event.common_fields ?cat ~name ~ts:(Timestamp.of_float_seconds start) ()
+    in
+    let event = Event.complete ?args common ~dur in
+    emit t event
+
 module Fd_count = struct
   type t =
     | Unknown
     | This of int
 
   let lsof =
-    let prog = lazy (Bin.which ~path:(Env.path Env.initial) "lsof") in
+    let prog = lazy (Bin.which ~path:(Env_path.path Env.initial) "lsof") in
     (* note: we do not use the Process module here, because it would create a
        circular dependency *)
     fun () ->

@@ -1,3 +1,4 @@
+module Display = Display
 module Vcs = Vcs
 module Context_name = Context_name
 module Action_builder = Action_builder
@@ -47,3 +48,4 @@ module Report_errors_config = Report_errors_config
 module Compound_user_error = Compound_user_error
 module Reflection = Reflection
 module No_io = No_io
+module Rpc = Rpc

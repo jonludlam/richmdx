@@ -11,6 +11,8 @@ type ('a, 'b) failure_mode =
   | Accept : int Predicate.t -> ('a, ('a, int) result) failure_mode
       (** Accept the following non-zero exit codes, and return [Error code] if
           the process exists with one of these codes. *)
+  | Return : ('a, 'a * int) failure_mode
+      (** Accept any error code and return it. *)
 
 module Io : sig
   (** Where to redirect stdout/stderr/stdin *)
@@ -85,6 +87,7 @@ val set_temp_dir_when_running_actions : bool ref
     termination. [stdout_to] [stderr_to] are released *)
 val run :
      ?dir:Path.t
+  -> display:Display.t
   -> ?stdout_to:Io.output Io.t
   -> ?stderr_to:Io.output Io.t
   -> ?stdin_from:Io.input Io.t
@@ -97,6 +100,7 @@ val run :
 
 val run_with_times :
      ?dir:Path.t
+  -> display:Display.t
   -> ?stdout_to:Io.output Io.t
   -> ?stderr_to:Io.output Io.t
   -> ?stdin_from:Io.input Io.t
@@ -109,6 +113,7 @@ val run_with_times :
 (** Run a command and capture its output *)
 val run_capture :
      ?dir:Path.t
+  -> display:Display.t
   -> ?stderr_to:Io.output Io.t
   -> ?stdin_from:Io.input Io.t
   -> ?env:Env.t
@@ -120,6 +125,7 @@ val run_capture :
 
 val run_capture_line :
      ?dir:Path.t
+  -> display:Display.t
   -> ?stderr_to:Io.output Io.t
   -> ?stdin_from:Io.input Io.t
   -> ?env:Env.t
@@ -131,6 +137,7 @@ val run_capture_line :
 
 val run_capture_lines :
      ?dir:Path.t
+  -> display:Display.t
   -> ?stderr_to:Io.output Io.t
   -> ?stdin_from:Io.input Io.t
   -> ?env:Env.t
@@ -142,6 +149,7 @@ val run_capture_lines :
 
 val run_capture_zero_separated :
      ?dir:Path.t
+  -> display:Display.t
   -> ?stderr_to:Io.output Io.t
   -> ?stdin_from:Io.input Io.t
   -> ?env:Env.t

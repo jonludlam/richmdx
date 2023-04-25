@@ -106,16 +106,16 @@ let validate_context_and_prog ectx prog =
     invalid_prefix (Path.relative Path.build_dir target_name);
     invalid_prefix (Path.relative Path.build_dir ("install/" ^ target_name))
 
-let exec_run ~ectx ~eenv prog args =
+let exec_run ~display ~ectx ~eenv prog args =
   validate_context_and_prog ectx prog;
   let+ (_ : (unit, int) result) =
-    Process.run (Accept eenv.exit_codes) ~dir:eenv.working_dir ~env:eenv.env
-      ~stdout_to:eenv.stdout_to ~stderr_to:eenv.stderr_to
+    Process.run ~display (Accept eenv.exit_codes) ~dir:eenv.working_dir
+      ~env:eenv.env ~stdout_to:eenv.stdout_to ~stderr_to:eenv.stderr_to
       ~stdin_from:eenv.stdin_from ~metadata:ectx.metadata prog args
   in
   ()
 
-let exec_run_dynamic_client ~ectx ~eenv prog args =
+let exec_run_dynamic_client ~display ~ectx ~eenv prog args =
   validate_context_and_prog ectx prog;
   let run_arguments_fn = Temp.create File ~prefix:"dune" ~suffix:"run" in
   let response_fn = Temp.create File ~prefix:"dune" ~suffix:"response" in
@@ -137,28 +137,36 @@ let exec_run_dynamic_client ~ectx ~eenv prog args =
     ; targets
     }
   in
-  Io.write_file run_arguments_fn (DAP.Run_arguments.serialize run_arguments);
+  DAP.Run_arguments.to_sexp run_arguments
+  |> Csexp.to_string
+  |> Io.write_file run_arguments_fn;
   let env =
     let value =
       DAP.Greeting.(
-        serialize
+        to_sexp
           { run_arguments_fn = Path.to_absolute_filename run_arguments_fn
           ; response_fn = Path.to_absolute_filename response_fn
           })
+      |> Csexp.to_string
     in
     Env.add eenv.env ~var:DAP.run_by_dune_env_variable ~value
   in
   let+ () =
-    Process.run Strict ~dir:eenv.working_dir ~env ~stdout_to:eenv.stdout_to
+    Process.run ~display Strict ~dir:eenv.working_dir ~env
       ~stderr_to:eenv.stderr_to ~stdin_from:eenv.stdin_from
       ~metadata:ectx.metadata prog args
   in
-  let response = Io.read_file response_fn in
+  let response_raw = Io.read_file response_fn in
   Temp.destroy File run_arguments_fn;
   Temp.destroy File response_fn;
+  let response =
+    match Csexp.parse_string response_raw with
+    | Ok s -> DAP.Response.of_sexp s
+    | Error _ -> Error DAP.Error.Parse_error
+  in
   let prog_name = Path.reach ~from:eenv.working_dir prog in
-  match DAP.Response.deserialize response with
-  | Error _ when String.is_empty response ->
+  match response with
+  | Error _ when String.is_empty response_raw ->
     User_error.raise ~loc:ectx.rule_loc
       [ Pp.textf
           "Executable '%s' declared as using dune-action-plugin (declared with \
@@ -195,7 +203,7 @@ let exec_echo stdout_to str =
   Fiber.return (output_string (Process.Io.out_channel stdout_to) str)
 
 let bash_exn =
-  let bin = lazy (Bin.which ~path:(Env.path Env.initial) "bash") in
+  let bin = lazy (Bin.which ~path:(Env_path.path Env.initial) "bash") in
   fun ~loc ~needed_to ->
     match Lazy.force bin with
     | Some path -> path
@@ -230,11 +238,11 @@ let diff_eq_files { Diff.optional; mode; file1; file2 } =
   (optional && not (Path.Untracked.exists file2))
   || compare_files mode file1 file2 = Eq
 
-let rec exec t ~ectx ~eenv =
+let rec exec t ~display ~ectx ~eenv =
   match (t : Action.t) with
   | Run (Error e, _) -> Action.Prog.Not_found.raise e
   | Run (Ok prog, args) ->
-    let+ () = exec_run ~ectx ~eenv prog args in
+    let+ () = exec_run ~display ~ectx ~eenv prog args in
     Done
   | With_accepted_exit_codes (exit_codes, t) ->
     let eenv =
@@ -246,23 +254,25 @@ let rec exec t ~ectx ~eenv =
       in
       { eenv with exit_codes }
     in
-    exec t ~ectx ~eenv
+    exec t ~display ~ectx ~eenv
   | Dynamic_run (Error e, _) -> Action.Prog.Not_found.raise e
-  | Dynamic_run (Ok prog, args) -> exec_run_dynamic_client ~ectx ~eenv prog args
-  | Chdir (dir, t) -> exec t ~ectx ~eenv:{ eenv with working_dir = dir }
+  | Dynamic_run (Ok prog, args) ->
+    exec_run_dynamic_client ~display ~ectx ~eenv prog args
+  | Chdir (dir, t) ->
+    exec t ~display ~ectx ~eenv:{ eenv with working_dir = dir }
   | Setenv (var, value, t) ->
-    exec t ~ectx ~eenv:{ eenv with env = Env.add eenv.env ~var ~value }
+    exec t ~display ~ectx ~eenv:{ eenv with env = Env.add eenv.env ~var ~value }
   | Redirect_out (Stdout, fn, perm, Echo s) ->
     let perm = Action.File_perm.to_unix_perm perm in
     Io.write_file (Path.build fn) (String.concat s ~sep:" ") ~perm;
     Fiber.return Done
   | Redirect_out (outputs, fn, perm, t) ->
     let fn = Path.build fn in
-    redirect_out t ~ectx ~eenv outputs ~perm fn
-  | Redirect_in (inputs, fn, t) -> redirect_in t ~ectx ~eenv inputs fn
+    redirect_out t ~display ~ectx ~eenv outputs ~perm fn
+  | Redirect_in (inputs, fn, t) -> redirect_in t ~display ~ectx ~eenv inputs fn
   | Ignore (outputs, t) ->
-    redirect_out t ~ectx ~eenv ~perm:Normal outputs Config.dev_null
-  | Progn ts -> exec_list ts ~ectx ~eenv
+    redirect_out t ~display ~ectx ~eenv ~perm:Normal outputs Config.dev_null
+  | Progn ts -> exec_list ts ~display ~ectx ~eenv
   | Echo strs ->
     let+ () = exec_echo eenv.stdout_to (String.concat strs ~sep:" ") in
     Done
@@ -285,11 +295,11 @@ let rec exec t ~ectx ~eenv =
     let path, arg =
       Utils.system_shell_exn ~needed_to:"interpret (system ...) actions"
     in
-    let+ () = exec_run ~ectx ~eenv path [ arg; cmd ] in
+    let+ () = exec_run ~display ~ectx ~eenv path [ arg; cmd ] in
     Done
   | Bash cmd ->
     let+ () =
-      exec_run ~ectx ~eenv
+      exec_run ~display ~ectx ~eenv
         (bash_exn ~loc:ectx.rule_loc ~needed_to:"interpret (bash ...) actions")
         [ "-e"; "-u"; "-o"; "pipefail"; "-c"; cmd ]
     in
@@ -305,10 +315,7 @@ let rec exec t ~ectx ~eenv =
     Path.rm_rf (Path.build path);
     Fiber.return Done
   | Mkdir path ->
-    if Path.is_in_build_dir path then Path.mkdir_p path
-    else
-      Code_error.raise "Action_exec.exec: mkdir on non build dir"
-        [ ("path", Path.to_dyn path) ];
+    Path.mkdir_p (Path.build path);
     Fiber.return Done
   | Diff ({ optional; file1; file2; mode } as diff) ->
     let remove_intermediate_file () =
@@ -383,21 +390,20 @@ let rec exec t ~ectx ~eenv =
     let target = Path.build target in
     Io.write_lines target (String.Set.to_list lines);
     Fiber.return Done
-  | No_infer t -> exec t ~ectx ~eenv
-  | Pipe (outputs, l) -> exec_pipe ~ectx ~eenv outputs l
+  | Pipe (outputs, l) -> exec_pipe ~display ~ectx ~eenv outputs l
   | Extension (module A) ->
     let* () =
       A.Spec.action A.v ~ectx:(restrict_ctx ectx) ~eenv:(restrict_env eenv)
     in
     Fiber.return Done
 
-and redirect_out t ~ectx ~eenv ~perm outputs fn =
-  redirect t ~ectx ~eenv ~out:(outputs, fn, perm) ()
+and redirect_out t ~display ~ectx ~eenv ~perm outputs fn =
+  redirect t ~display ~ectx ~eenv ~out:(outputs, fn, perm) ()
 
-and redirect_in t ~ectx ~eenv inputs fn =
-  redirect t ~ectx ~eenv ~in_:(inputs, fn) ()
+and redirect_in t ~display ~ectx ~eenv inputs fn =
+  redirect t ~display ~ectx ~eenv ~in_:(inputs, fn) ()
 
-and redirect t ~ectx ~eenv ?in_ ?out () =
+and redirect t ~display ~ectx ~eenv ?in_ ?out () =
   let stdin_from, release_in =
     match in_ with
     | None -> (eenv.stdin_from, ignore)
@@ -422,28 +428,28 @@ and redirect t ~ectx ~eenv ?in_ ?out () =
       (stdout_to, stderr_to, fun () -> Process.Io.release out)
   in
   let+ result =
-    exec t ~ectx ~eenv:{ eenv with stdin_from; stdout_to; stderr_to }
+    exec t ~display ~ectx ~eenv:{ eenv with stdin_from; stdout_to; stderr_to }
   in
   release_in ();
   release_out ();
   result
 
-and exec_list ts ~ectx ~eenv =
+and exec_list ts ~display ~ectx ~eenv =
   match ts with
   | [] -> Fiber.return Done
-  | [ t ] -> exec t ~ectx ~eenv
+  | [ t ] -> exec t ~display ~ectx ~eenv
   | t :: rest -> (
     let* done_or_deps =
       let stdout_to = Process.Io.multi_use eenv.stdout_to in
       let stderr_to = Process.Io.multi_use eenv.stderr_to in
       let stdin_from = Process.Io.multi_use eenv.stdin_from in
-      exec t ~ectx ~eenv:{ eenv with stdout_to; stderr_to; stdin_from }
+      exec t ~display ~ectx ~eenv:{ eenv with stdout_to; stderr_to; stdin_from }
     in
     match done_or_deps with
     | Need_more_deps _ as need -> Fiber.return need
-    | Done -> exec_list rest ~ectx ~eenv)
+    | Done -> exec_list rest ~display ~ectx ~eenv)
 
-and exec_pipe outputs ts ~ectx ~eenv =
+and exec_pipe outputs ts ~display ~ectx ~eenv =
   let tmp_file () =
     Dtemp.file ~prefix:"dune-pipe-action-"
       ~suffix:("." ^ Action.Outputs.to_string outputs)
@@ -458,7 +464,7 @@ and exec_pipe outputs ts ~ectx ~eenv =
           { eenv with stdout_to = Process.Io.multi_use eenv.stderr_to }
         | _ -> eenv
       in
-      let+ result = redirect_in last_t ~ectx ~eenv Stdin in_ in
+      let+ result = redirect_in last_t ~display ~ectx ~eenv Stdin in_ in
       Dtemp.destroy File in_;
       result
     | t :: ts -> (
@@ -467,7 +473,8 @@ and exec_pipe outputs ts ~ectx ~eenv =
         let eenv =
           { eenv with stderr_to = Process.Io.multi_use eenv.stderr_to }
         in
-        redirect t ~ectx ~eenv ~in_:(Stdin, in_) ~out:(Stdout, out, Normal) ()
+        redirect t ~display ~ectx ~eenv ~in_:(Stdin, in_)
+          ~out:(Stdout, out, Normal) ()
       in
       Dtemp.destroy File in_;
       match done_or_deps with
@@ -484,14 +491,16 @@ and exec_pipe outputs ts ~ectx ~eenv =
       | Stdout -> { eenv with stderr_to = Process.Io.multi_use eenv.stderr_to }
       | Stderr -> { eenv with stdout_to = Process.Io.multi_use eenv.stdout_to }
     in
-    let* done_or_deps = redirect_out t1 ~ectx ~eenv ~perm:Normal outputs out in
+    let* done_or_deps =
+      redirect_out t1 ~display ~ectx ~eenv ~perm:Normal outputs out
+    in
     match done_or_deps with
     | Need_more_deps _ as need -> Fiber.return need
     | Done -> loop ~in_:out ts)
 
-let exec_until_all_deps_ready ~ectx ~eenv t =
+let exec_until_all_deps_ready ~display ~ectx ~eenv t =
   let rec loop ~eenv stages =
-    let* result = exec ~ectx ~eenv t in
+    let* result = exec ~display ~ectx ~eenv t in
     match result with
     | Done -> Fiber.return stages
     | Need_more_deps (relative_deps, deps_to_build) ->
@@ -544,4 +553,4 @@ let exec ~targets ~root ~context ~env ~rule_loc ~build_deps
     ; exit_codes = Predicate.create (Int.equal 0)
     }
   in
-  exec_until_all_deps_ready t ~ectx ~eenv
+  exec_until_all_deps_ready t ~display:!Clflags.display ~ectx ~eenv

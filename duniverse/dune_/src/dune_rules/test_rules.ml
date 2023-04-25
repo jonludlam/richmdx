@@ -26,7 +26,7 @@ let rules (t : Dune_file.Tests.t) ~sctx ~dir ~scope ~expander ~dir_contents =
              | Other { kind = Exe; mode = Byte } -> Some `bc
              | Other { kind = Js; _ } -> Some `js
              | Other { kind = C | Object | Shared_object | Plugin; _ } ->
-               (* We don't know how to run tests in theses cases *)
+               (* We don't know how to run tests in these cases *)
                None)
       |> List.sort_uniq ~compare:Poly.compare
   in
@@ -35,7 +35,7 @@ let rules (t : Dune_file.Tests.t) ~sctx ~dir ~scope ~expander ~dir_contents =
         Memo.parallel_iter runtest_modes ~f:(fun runtest_mode ->
             let ext =
               match runtest_mode with
-              | `js -> ".bc.js"
+              | `js -> Js_of_ocaml.Ext.exe
               | `bc -> ".bc"
               | `exe -> ".exe"
             in
@@ -105,7 +105,7 @@ let rules (t : Dune_file.Tests.t) ~sctx ~dir ~scope ~expander ~dir_contents =
                 ; locks = t.locks
                 ; loc
                 ; enabled_if = t.enabled_if
-                ; alias = None
+                ; aliases = []
                 ; package = t.package
                 }
               in

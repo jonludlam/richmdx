@@ -31,6 +31,8 @@ val default_non_det : non_det
 
 type block_kind = OCaml | Cram | Toplevel | Include
 
+val pp_block_kind : block_kind Fmt.t
+
 type t =
   | Dir of string
   | Source_tree of string
@@ -43,13 +45,12 @@ type t =
   | Set of string * string
   | Unset of string
   | Block_kind of block_kind
+  | Language_tag of string
 
-val pp : Format.formatter -> t -> unit
+val pp : t Fmt.t
 
 val interpret :
-  string ->
-  (Relation.t * string) option ->
-  (t, [> `Msg of string ]) Result.result
+  string -> (Relation.t * string) option -> (t, [> `Msg of string ]) result
 
-val of_string : string -> (t list, [ `Msg of string ] list) Result.result
+val of_string : string -> (t list, [ `Msg of string ] list) result
 (** [of_string s] cuts [s] into a list of labels. *)

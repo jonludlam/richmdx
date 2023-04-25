@@ -2,6 +2,7 @@ Reproduction case for #1549: too many parentheses in installed .dune files
 
   $ dune build @install --root backend
   Entering directory 'backend'
+  Leaving directory 'backend'
 
   $ dune_cmd cat backend/_build/install/default/lib/dune_inline_tests/dune-package | sed "s/(lang dune .*)/(lang dune <version>)/" | dune_cmd sanitize
   (lang dune <version>)
@@ -30,13 +31,13 @@ Reproduction case for #1549: too many parentheses in installed .dune files
    (modes byte native)
    (modules
     (wrapped
-     (main_module_name Simple_tests)
-     (alias_module
-      (name Simple_tests)
-      (obj_name simple_tests)
-      (visibility public)
-      (kind alias)
-      (impl))
+     (group
+      (alias
+       (obj_name simple_tests)
+       (visibility public)
+       (kind alias)
+       (source (path Simple_tests) (impl (path simple_tests.ml-gen))))
+      (name Simple_tests))
      (wrapped true)))
    (inline_tests.backend
     (flags :standard)
@@ -45,3 +46,4 @@ Reproduction case for #1549: too many parentheses in installed .dune files
 
   $ env OCAMLPATH=backend/_build/install/default/lib dune runtest --root example
   Entering directory 'example'
+  Leaving directory 'example'

@@ -3,6 +3,7 @@
 
   $ dune build --root=a
   Entering directory 'a'
+  Leaving directory 'a'
   $ dune_cmd cat a/_build/install/default/lib/a/dune-package | sed "s/(lang dune .*)/(lang dune <version>)/" | dune_cmd sanitize
   (lang dune <version>)
   (name a)
@@ -55,14 +56,18 @@
    (modes byte native)
    (modules
     (wrapped
-     (main_module_name A)
-     (modules ((name X) (obj_name a__X) (visibility public) (impl)))
-     (alias_module
+     (group
+      (alias
+       (obj_name a)
+       (visibility public)
+       (kind alias)
+       (source (path A) (impl (path a.ml-gen))))
       (name A)
-      (obj_name a)
-      (visibility public)
-      (kind alias)
-      (impl))
+      (modules
+       (module
+        (obj_name a__X)
+        (visibility public)
+        (source (path X) (impl (path x.ml))))))
      (wrapped true))))
   (library
    (name a.b.c)
@@ -75,14 +80,18 @@
    (obj_dir (private_dir .private))
    (modules
     (wrapped
-     (main_module_name C)
-     (modules ((name Y) (obj_name c__Y) (visibility private) (impl) (intf)))
-     (alias_module
+     (group
+      (alias
+       (obj_name c)
+       (visibility public)
+       (kind alias)
+       (source (path C) (impl (path b/c/c.ml-gen))))
       (name C)
-      (obj_name c)
-      (visibility public)
-      (kind alias)
-      (impl))
+      (modules
+       (module
+        (obj_name c__Y)
+        (visibility private)
+        (source (path Y) (intf (path b/c/y.mli)) (impl (path b/c/y.ml))))))
      (wrapped true))))
   (library
    (name a.byte_only)
@@ -93,19 +102,24 @@
    (modes byte)
    (modules
     (wrapped
-     (main_module_name D)
-     (modules ((name Z) (obj_name d__Z) (visibility public) (impl)))
-     (alias_module
+     (group
+      (alias
+       (obj_name d)
+       (visibility public)
+       (kind alias)
+       (source (path D) (impl (path byte_only/d.ml-gen))))
       (name D)
-      (obj_name d)
-      (visibility public)
-      (kind alias)
-      (impl))
+      (modules
+       (module
+        (obj_name d__Z)
+        (visibility public)
+        (source (path Z) (impl (path byte_only/z.ml))))))
      (wrapped true))))
 
 Build with "--store-orig-source-dir" profile
   $ dune build --root=a --store-orig-source-dir
   Entering directory 'a'
+  Leaving directory 'a'
   $ dune_cmd cat a/_build/install/default/lib/a/dune-package | grep -A 1 '(orig_src_dir'
    (orig_src_dir
     $TESTCASE_ROOT/a)
@@ -119,6 +133,7 @@ Build with "--store-orig-source-dir" profile
 Build with "DUNE_STORE_ORIG_SOURCE_DIR=true" profile
   $ DUNE_STORE_ORIG_SOURCE_DIR=true dune build --root=a
   Entering directory 'a'
+  Leaving directory 'a'
   $ dune_cmd cat a/_build/install/default/lib/a/dune-package | grep -A 1 '(orig_src_dir'
    (orig_src_dir
     $TESTCASE_ROOT/a)
@@ -132,7 +147,7 @@ Build with "DUNE_STORE_ORIG_SOURCE_DIR=true" profile
 Install the package directly
 
   $ dune install "--prefix=$PWD/prefix" --root=a 2>&1 | grep -v "Installing"
-  Entering directory 'a'
+  [1]
 
   $ dune_cmd cat prefix/lib/a/dune-package | grep -e 'lib/a' -e 'share/a'
     $TESTCASE_ROOT/prefix/lib/a)

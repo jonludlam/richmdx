@@ -17,6 +17,7 @@
 open Odoc_document.Types
 module Html = Tyxml.Html
 module Doctree = Odoc_document.Doctree
+module Url = Odoc_document.Url
 
 type any = Html_types.flow5
 
@@ -34,11 +35,22 @@ let mk_anchor_link id =
 let mk_anchor anchor =
   match anchor with
   | None -> ([], [], [])
-  | Some { Odoc_document.Url.Anchor.anchor; _ } ->
+  | Some { Url.Anchor.anchor; _ } ->
       let link = mk_anchor_link anchor in
       let extra_attr = [ Html.a_id anchor ] in
       let extra_class = [ "anchored" ] in
       (extra_attr, extra_class, link)
+
+let mk_link_to_source ~config ~resolve anchor =
+  match anchor with
+  | None -> []
+  | Some url ->
+      let href = Link.href ~config ~resolve url in
+      [
+        Html.a
+          ~a:[ Html.a_href href; Html.a_class [ "source_link" ] ]
+          [ Html.txt "Source" ];
+      ]
 
 let class_ (l : Class.t) = if l = [] then [] else [ Html.a_class l ]
 
@@ -80,32 +92,24 @@ and styled style ~emph_level =
   | `Superscript -> (emph_level, Html.sup ~a:[])
   | `Subscript -> (emph_level, Html.sub ~a:[])
 
-let rec internallink ~config ~emph_level ~resolve ?(a = []) (t : InternalLink.t)
-    =
-  match t with
-  | Resolved (uri, content) ->
-      let href = Link.href ~config ~resolve uri in
-      let a = (a :> Html_types.a_attrib Html.attrib list) in
-      let elt =
+let rec internallink ~config ~emph_level ~resolve ?(a = [])
+    { InternalLink.target; content; tooltip } =
+  let a = match tooltip with Some s -> Html.a_title s :: a | None -> a in
+  let elt =
+    match target with
+    | Resolved uri ->
+        let href = Link.href ~config ~resolve uri in
+        let a = (a :> Html_types.a_attrib Html.attrib list) in
         Html.a ~a:(Html.a_href href :: a) (inline_nolink ~emph_level content)
-      in
-      let elt = (elt :> phrasing Html.elt) in
-      [ elt ]
-  | Unresolved content ->
-      (* let title =
-       *   Html.a_title (Printf.sprintf "unresolved reference to %S"
-       *       (ref_to_string ref)
-       * in *)
-      let a = Html.a_class [ "xref-unresolved" ] :: a in
-      let elt = Html.span ~a (inline ~config ~emph_level ~resolve content) in
-      let elt = (elt :> phrasing Html.elt) in
-      [ elt ]
-
-and internallink_nolink ~emph_level
-    ~(a : Html_types.span_attrib Html.attrib list) (t : InternalLink.t) =
-  match t with
-  | Resolved (_, content) | Unresolved content ->
-      [ Html.span ~a (inline_nolink ~emph_level content) ]
+    | Unresolved ->
+        (* let title =
+         *   Html.a_title (Printf.sprintf "unresolved reference to %S"
+         *       (ref_to_string ref)
+         * in *)
+        let a = Html.a_class [ "xref-unresolved" ] :: a in
+        Html.span ~a (inline ~config ~emph_level ~resolve content)
+  in
+  [ (elt :> phrasing Html.elt) ]
 
 and inline ~config ?(emph_level = 0) ~resolve (l : Inline.t) :
     phrasing Html.elt list =
@@ -146,8 +150,8 @@ and inline_nolink ?(emph_level = 0) (l : Inline.t) :
     | Styled (style, c) ->
         let emph_level, app_style = styled style ~emph_level in
         [ app_style @@ inline_nolink ~emph_level c ]
-    | Link (_, c) -> inline_nolink ~emph_level c
-    | InternalLink c -> internallink_nolink ~emph_level ~a c
+    | Link _ -> assert false
+    | InternalLink _ -> assert false
     | Source c -> source (inline_nolink ~emph_level) ~a c
     | Math s -> [ inline_math s ]
     | Raw_markup r -> raw_markup r
@@ -161,6 +165,7 @@ let heading ~config ~resolve (h : Heading.t) =
     | None -> ([], [])
   in
   let content = inline ~config ~resolve h.title in
+  let source_link = mk_link_to_source ~config ~resolve h.source_anchor in
   let mk =
     match h.level with
     | 0 -> Html.h1
@@ -170,7 +175,7 @@ let heading ~config ~resolve (h : Heading.t) =
     | 4 -> Html.h5
     | _ -> Html.h6
   in
-  mk ~a (anchor @ content)
+  mk ~a (anchor @ content @ source_link)
 
 let rec block ~config ~resolve (l : Block.t) : flow Html.elt list =
   let as_flow x = (x : phrasing Html.elt list :> flow Html.elt list) in
@@ -304,7 +309,14 @@ and items ~config ~resolve l : item Html.elt list =
         (continue_with [@tailcall]) rest content
     | Heading h :: rest ->
         (continue_with [@tailcall]) rest [ heading ~config ~resolve h ]
-    | Include { attr; anchor; doc; content = { summary; status; content } }
+    | Include
+        {
+          attr;
+          anchor;
+          source_anchor;
+          doc;
+          content = { summary; status; content };
+        }
       :: rest ->
         let doc = spec_doc_div ~config ~resolve doc in
         let included_html = (items content :> item Html.elt list) in
@@ -317,8 +329,11 @@ and items ~config ~resolve l : item Html.elt list =
             let open' = if open' then [ Html.a_open () ] else [] in
             let summary =
               let extra_attr, extra_class, anchor_link = mk_anchor anchor in
+              let link_to_source =
+                mk_link_to_source ~config ~resolve source_anchor
+              in
               let a = spec_class (attr @ extra_class) @ extra_attr in
-              Html.summary ~a @@ anchor_link
+              Html.summary ~a @@ anchor_link @ link_to_source
               @ source (inline ~config ~resolve) summary
             in
             let inner =
@@ -336,10 +351,13 @@ and items ~config ~resolve l : item Html.elt list =
           | `Default -> details ~open':(Config.open_details config)
         in
         (continue_with [@tailcall]) rest content
-    | Declaration { Item.attr; anchor; content; doc } :: rest ->
+    | Declaration { Item.attr; anchor; source_anchor; content; doc } :: rest ->
         let extra_attr, extra_class, anchor_link = mk_anchor anchor in
+        let link_to_source = mk_link_to_source ~config ~resolve source_anchor in
         let a = spec_class (attr @ extra_class) @ extra_attr in
-        let content = anchor_link @ documentedSrc ~config ~resolve content in
+        let content =
+          anchor_link @ link_to_source @ documentedSrc ~config ~resolve content
+        in
         let spec =
           let doc = spec_doc_div ~config ~resolve doc in
           [ div ~a:[ Html.a_class [ "odoc-spec" ] ] (div ~a content :: doc) ]
@@ -367,12 +385,35 @@ module Toc = struct
       in
       let title_str =
         List.map (Format.asprintf "%a" (Tyxml.Html.pp_elt ())) text
-        |> String.concat " "
+        |> String.concat ""
       in
       let href = Link.href ~config ~resolve url in
       { title; title_str; href; children = List.map section children }
     in
     List.map section toc
+end
+
+module Breadcrumbs = struct
+  open Types
+
+  let gen_breadcrumbs ~config ~url =
+    let rec get_parent_paths x =
+      match x with
+      | [] -> []
+      | x :: xs -> (
+          match Odoc_document.Url.Path.of_list (List.rev (x :: xs)) with
+          | Some x -> x :: get_parent_paths xs
+          | None -> get_parent_paths xs)
+    in
+    let to_breadcrumb path =
+      let href =
+        Link.href ~config ~resolve:(Current url)
+          (Odoc_document.Url.from_path path)
+      in
+      { href; name = path.name; kind = path.kind }
+    in
+    get_parent_paths (List.rev (Odoc_document.Url.Path.to_list url))
+    |> List.rev |> List.map to_breadcrumb
 end
 
 module Page = struct
@@ -385,27 +426,53 @@ module Page = struct
 
   let rec include_ ~config { Subpage.content; _ } = page ~config content
 
-  and subpages ~config subpages =
-    Utils.list_concat_map ~f:(include_ ~config) subpages
+  and subpages ~config subpages = List.map (include_ ~config) subpages
 
-  and page ~config p : Odoc_document.Renderer.page list =
-    let { Page.title; header; items = i; url } =
-      Doctree.Labels.disambiguate_page p
-    and subpages =
-      (* Don't use the output of [disambiguate_page] to avoid unecessarily
-         mangled labels. *)
-      subpages ~config @@ Doctree.Subpages.compute p
+  and page ~config p : Odoc_document.Renderer.page =
+    let { Page.preamble; items = i; url; source_anchor } =
+      Doctree.Labels.disambiguate_page ~enter_subpages:false p
     in
+    let subpages = subpages ~config @@ Doctree.Subpages.compute p in
     let resolve = Link.Current url in
     let i = Doctree.Shift.compute ~on_sub i in
     let uses_katex = Doctree.Math.has_math_elements p in
     let toc = Toc.gen_toc ~config ~resolve ~path:url i in
-    let header = items ~config ~resolve header in
+    let breadcrumbs = Breadcrumbs.gen_breadcrumbs ~config ~url in
     let content = (items ~config ~resolve i :> any Html.elt list) in
-    Tree.make ~config ~header ~toc ~url ~uses_katex title content subpages
+    if Config.as_json config then
+      let source_anchor =
+        match source_anchor with
+        | Some url -> Some (Link.href ~config ~resolve url)
+        | None -> None
+      in
+      Html_fragment_json.make ~config
+        ~preamble:(items ~config ~resolve preamble :> any Html.elt list)
+        ~breadcrumbs ~toc ~url ~uses_katex ~source_anchor content subpages
+    else
+      let header =
+        items ~config ~resolve
+          (Doctree.PageTitle.render_title ?source_anchor p @ preamble)
+      in
+      Html_page.make ~config ~header ~toc ~breadcrumbs ~url ~uses_katex content
+        subpages
+
+  and source_page ~config sp =
+    let { Source_page.url; contents } = sp in
+    let resolve = Link.Current sp.url in
+    let title = url.Url.Path.name
+    and doc = Html_source.html_of_doc ~config ~resolve contents in
+    let breadcrumbs = Breadcrumbs.gen_breadcrumbs ~config ~url in
+    let header =
+      items ~config ~resolve (Doctree.PageTitle.render_src_title sp)
+    in
+    if Config.as_json config then
+      Html_fragment_json.make_src ~config ~url ~breadcrumbs [ doc ]
+    else Html_page.make_src ~breadcrumbs ~header ~config ~url title [ doc ]
 end
 
-let render ~config page = Page.page ~config page
+let render ~config = function
+  | Document.Page page -> [ Page.page ~config page ]
+  | Source_page src -> [ Page.source_page ~config src ]
 
 let doc ~config ~xref_base_uri b =
   let resolve = Link.Base xref_base_uri in

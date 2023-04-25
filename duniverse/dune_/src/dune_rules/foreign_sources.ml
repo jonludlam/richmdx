@@ -8,7 +8,7 @@ module Library = Dune_file.Library
    Before this module is removed, there should be a good way to handle new types
    of source files without shoving everything into [Dir_contents].
 
-   Furthemore, this module is also responsible for details such as handling file
+   Furthermore, this module is also responsible for details such as handling file
    extensions and validating filenames. *)
 type t =
   { libraries : Foreign.Sources.t Lib_name.Map.t
@@ -38,11 +38,32 @@ let valid_name language ~loc s =
       ]
   | _ -> s
 
-let eval_foreign_stubs foreign_stubs ~dune_version
-    ~(sources : Foreign.Sources.Unresolved.t) : Foreign.Sources.t =
-  let multiple_sources_error ~name ~loc ~paths =
+let eval_foreign_stubs foreign_stubs (ctypes : Ctypes_field.t option)
+    ~dune_version ~(sources : Foreign.Sources.Unresolved.t) : Foreign.Sources.t
+    =
+  let multiple_sources_error ~name ~mode ~loc ~paths =
+    let hints =
+      [ Pp.text
+          "You can also avoid the name clash by placing the objects into \
+           different foreign archives and building them in different \
+           directories. Foreign archives can be defined using the \
+           (foreign_library ...) stanza."
+      ]
+    in
+    let hints, for_mode =
+      match mode with
+      | Mode.Select.All -> (hints, "")
+      | Mode.Select.Only m ->
+        let mode_hint =
+          Pp.text
+            "You may be missing a mode field that would restrict this stub to \
+             some specific mode."
+        in
+        (mode_hint :: hints, Printf.sprintf " for mode %s" @@ Mode.to_string m)
+    in
     User_error.raise ~loc
-      [ Pp.textf "Multiple sources map to the same object name %S:" name
+      [ Pp.textf "Multiple sources map to the same object name %S%s:" name
+          for_mode
       ; Pp.enumerate (List.sort ~compare:Path.Build.compare paths)
           ~f:(fun path ->
             Pp.text
@@ -53,13 +74,18 @@ let eval_foreign_stubs foreign_stubs ~dune_version
            names."
           name
       ]
-      ~hints:
-        [ Pp.text
-            "You can also avoid the name clash by placing the objects into \
-             different foreign archives and building them in different \
-             directories. Foreign archives can be defined using the \
-             (foreign_library ...) stanza."
-        ]
+      ~hints
+  in
+  let find_source language (loc, name) =
+    let open Option.O in
+    let* candidates = String.Map.find sources name in
+    match
+      List.filter_map candidates ~f:(fun (l, path) ->
+          Option.some_if (Foreign_language.equal l language) path)
+    with
+    | [ path ] -> Some path
+    | [] -> None
+    | _ :: _ :: _ as paths -> multiple_sources_error ~mode:All ~name ~loc ~paths
   in
   let eval (stubs : Foreign.Stubs.t) =
     let language = stubs.language in
@@ -74,7 +100,7 @@ let eval_foreign_stubs foreign_stubs ~dune_version
       Ordered_set_lang.Unordered_string.eval_loc stubs.names ~key:Fun.id
         ~standard ~parse:(fun ~loc:_ -> Fun.id)
     in
-    String.Map.map names ~f:(fun (loc, s) ->
+    String.Map.fold names ~init:String.Map.empty ~f:(fun (loc, s) acc ->
         let name = valid_name language ~loc s in
         let basename = Filename.basename s in
         if name <> basename then
@@ -84,19 +110,11 @@ let eval_foreign_stubs foreign_stubs ~dune_version
                  To include sources in subdirectories, use the \
                  (include_subdirs ...) stanza."
             ];
-        let open Option.O in
-        let source =
-          let* candidates = String.Map.find sources name in
-          match
-            List.filter_map candidates ~f:(fun (l, path) ->
-                Option.some_if (Foreign_language.equal l language) path)
-          with
-          | [ path ] -> Some (loc, Foreign.Source.make ~stubs ~path)
-          | [] -> None
-          | _ :: _ :: _ as paths -> multiple_sources_error ~name ~loc ~paths
-        in
-        match source with
-        | Some source -> source
+        match find_source language (loc, name) with
+        | Some path ->
+          let src = Foreign.Source.make (Stubs stubs) ~path in
+          let new_key = Foreign.Source.object_name src in
+          String.Map.add_exn acc new_key (loc, src)
         | None ->
           User_error.raise ~loc
             [ Pp.textf "Object %S has no source; %s must be present." name
@@ -105,18 +123,35 @@ let eval_foreign_stubs foreign_stubs ~dune_version
                    |> List.map ~f:(fun s -> sprintf "%S" s)))
             ])
   in
-  let stub_maps = List.map foreign_stubs ~f:eval in
+  let stub_maps =
+    let init = List.map foreign_stubs ~f:eval in
+    match ctypes with
+    | None -> init
+    | Some ctypes ->
+      let ctypes =
+        List.fold_left ~init:String.Map.empty ctypes.function_description
+          ~f:(fun acc (fd : Ctypes_field.Function_description.t) ->
+            let loc = Loc.none (* TODO *) in
+            let fname = Ctypes_field.c_generated_functions_cout_c ctypes fd in
+            let name = Filename.chop_extension fname in
+            let path =
+              match find_source C (loc, name) with
+              | Some p -> p
+              | None ->
+                (* impossible b/c ctypes fields generates this *)
+                assert false
+            in
+            let source = Foreign.Source.make (Ctypes ctypes) ~path in
+            String.Map.add_exn acc name (loc, source))
+      in
+      ctypes :: init
+  in
   List.fold_left stub_maps ~init:String.Map.empty ~f:(fun a b ->
-      String.Map.union a b ~f:(fun name (loc, src1) (_, src2) ->
-          multiple_sources_error ~name ~loc
+      String.Map.union a b ~f:(fun _name (loc, src1) (_, src2) ->
+          let name = Foreign.Source.user_object_name src1 in
+          let mode = Foreign.Source.mode src1 in
+          multiple_sources_error ~name ~loc ~mode
             ~paths:Foreign.Source.[ path src1; path src2 ]))
-
-let check_no_qualified (loc, include_subdirs) =
-  if include_subdirs = Dune_file.Include_subdirs.Include Qualified then
-    User_error.raise ~loc
-      [ Pp.text
-          "(include_subdirs qualified) is only meant for OCaml and Coq sources"
-      ]
 
 let make stanzas ~(sources : Foreign.Sources.Unresolved.t) ~dune_version
     ~(lib_config : Lib_config.t) =
@@ -128,12 +163,12 @@ let make stanzas ~(sources : Foreign.Sources.Unresolved.t) ~dune_version
           | Library lib ->
             let all =
               eval_foreign_stubs ~dune_version lib.buildable.foreign_stubs
-                ~sources
+                lib.buildable.ctypes ~sources
             in
             ((lib, all) :: libs, foreign_libs, exes)
           | Foreign_library library ->
             let all =
-              eval_foreign_stubs ~dune_version [ library.stubs ] ~sources
+              eval_foreign_stubs ~dune_version [ library.stubs ] ~sources None
             in
             ( libs
             , (library.archive_name, (library.archive_name_loc, all))
@@ -142,7 +177,7 @@ let make stanzas ~(sources : Foreign.Sources.Unresolved.t) ~dune_version
           | Executables exe | Tests { exes = exe; _ } ->
             let all =
               eval_foreign_stubs ~dune_version exe.buildable.foreign_stubs
-                ~sources
+                ~sources exe.buildable.ctypes
             in
             (libs, foreign_libs, (exe, all) :: exes)
           | _ -> acc)
@@ -163,11 +198,21 @@ let make stanzas ~(sources : Foreign.Sources.Unresolved.t) ~dune_version
     match String.Map.of_list objects with
     | Ok _ -> ()
     | Error (path, loc, another_loc) ->
-      User_error.raise ~loc
-        [ Pp.textf
-            "Multiple definitions for the same object file %S. See another \
-             definition at %s."
-            path
+      let main_message =
+        sprintf "Multiple definitions for the same object file %S" path
+      in
+      let annots =
+        let main = User_message.make ~loc [ Pp.text main_message ] in
+        let related =
+          [ User_message.make ~loc:another_loc
+              [ Pp.text "Object already defined here" ]
+          ]
+        in
+        User_message.Annots.singleton Compound_user_error.annot
+          [ Compound_user_error.make ~main ~related ]
+      in
+      User_error.raise ~loc ~annots
+        [ Pp.textf "%s. See another definition at %s." main_message
             (Loc.to_file_colon_line another_loc)
         ]
         ~hints:
@@ -206,7 +251,7 @@ let make stanzas ~(sources : Foreign.Sources.Unresolved.t) ~dune_version
             [ User_message.make ~loc:loc1 [ Pp.text "Name already used here" ] ]
           in
           User_message.Annots.singleton Compound_user_error.annot
-            (Compound_user_error.make ~main ~related)
+            [ Compound_user_error.make ~main ~related ]
         in
         User_error.raise ~annots ~loc:loc2
           [ Pp.textf "%s; the name has already been taken in %s." main_message
@@ -216,9 +261,7 @@ let make stanzas ~(sources : Foreign.Sources.Unresolved.t) ~dune_version
   in
   { libraries; archives; executables }
 
-let make stanzas ~dune_version ~include_subdirs ~(lib_config : Lib_config.t)
-    ~dirs =
-  check_no_qualified include_subdirs;
+let make stanzas ~dune_version ~(lib_config : Lib_config.t) ~dirs =
   let init = String.Map.empty in
   let sources =
     List.fold_left dirs ~init ~f:(fun acc (dir, _local, files) ->

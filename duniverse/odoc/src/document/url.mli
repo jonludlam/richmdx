@@ -17,10 +17,11 @@ module Path : sig
     | `Page
     | `LeafPage
     | `ModuleType
-    | `Argument
+    | `Parameter of int
     | `Class
     | `ClassType
-    | `File ]
+    | `File
+    | `SourcePage ]
 
   val pp_kind : Format.formatter -> kind -> unit
 
@@ -36,6 +37,13 @@ module Path : sig
   and source = source_pv Odoc_model.Paths.Identifier.id
 
   val from_identifier : [< source_pv ] Odoc_model.Paths.Identifier.id -> t
+
+  val source_dir_from_identifier : Odoc_model.Paths.Identifier.SourceDir.t -> t
+  (** A path to a source dir. *)
+
+  val source_file_from_identifier :
+    Odoc_model.Paths.Identifier.SourcePage.t -> t
+  (** A path to a source file. *)
 
   val to_list : t -> (kind * string) list
 
@@ -67,7 +75,8 @@ module Anchor : sig
     | `Method
     | `Val
     | `Constructor
-    | `Field ]
+    | `Field
+    | `SourceAnchor ]
 
   val pp_kind : Format.formatter -> kind -> unit
 
@@ -84,6 +93,9 @@ module Anchor : sig
 
   val from_identifier : Identifier.t -> (t, Error.t) result
 
+  val source_file_from_identifier :
+    Odoc_model.Paths.Identifier.SourcePage.t -> anchor:string -> t
+
   val polymorphic_variant :
     type_ident:Identifier.t ->
     Odoc_model.Lang.TypeExpr.Polymorphic_variant.element ->
@@ -92,6 +104,8 @@ module Anchor : sig
   val extension_decl : Odoc_model.Lang.Extension.t -> t
   (** Anchor for the extension declaration item itself, which doesn't have an
       identifier in the model. *)
+
+  val source_anchor : Path.t -> string -> t
 end
 
 type kind = Anchor.kind

@@ -1,0 +1,682 @@
+{0 Supervision 2}
+
+{1 Lecture 4}
+
+{2 Exercise 4.1}
+
+Sets can be represented in OCaml using lists containing no duplicated items
+(i.e. where no item is equal to another using polymorphic comparison).
+
+Using the member function defined above, code a function to implement set union.
+It should avoid introducing repetitions, for example the union of the lists [[4; 7; 1]] and [[6; 4; 7]]
+should be [[1; 6; 4; 7]] (though the order does not matter).
+
+{@ocaml[
+# let rec member x = function
+  | [] -> false
+  | y::l ->
+    x = y || member x l;;
+val member : 'a -> 'a list -> bool = <fun>
+# let rec union xs ys =
+    match xs with
+    | [] -> ys
+    | x :: xs ->
+      if member x ys
+      then union xs ys
+      else x :: union xs ys;;
+val union : 'a list -> 'a list -> 'a list = <fun>
+# union [4; 7; 1] [6; 4; 7];;
+- : int list = [1; 6; 4; 7]
+]}
+
+{2 Exercise 4.2}
+
+Code a function that takes a list of integers and returns two lists, the first consisting
+of all non-negative numbers found in the input and the second consisting of all the negative numbers.
+
+{@ocaml[
+# let rec partition = function
+  | [] -> ([], [])
+  | x::xs ->
+    let (p, n) = partition xs in
+    if x >= 0 then (x::p, n) else (p, x::n);;
+val partition : int list -> int list * int list = <fun>
+# partition [1;2;5;-1;-5;2;-3;7;-10];;
+- : int list * int list = ([1; 2; 5; 2; 7], [-1; -5; -3; -10])
+]}
+
+{2 Exercise 4.3}
+
+How does this version of zip differ from the one above?
+
+{@ocaml[
+let rec zip xs ys =
+  match xs, ys with
+  | (x::xs, y::ys) -> (x, y) :: zip xs ys
+  | ([], [])   -> []
+  | _ -> failwith "error"
+]}
+
+
+This is the first implementation:
+
+{@ocaml[
+let rec zip1 xs ys =
+  match xs, ys with
+  | (x::xs, y::ys) -> (x, y) :: zip1 xs ys
+  | _   -> []
+]}
+
+The second fails if the two lists aren't the same length. Example:
+
+{@ocaml[
+# zip1 [1;2;3;4] ['a';'b';'c';'d';'e'];;
+- : (int * char) list = [(1, 'a'); (2, 'b'); (3, 'c'); (4, 'd')]
+# zip [1;2;3;4] ['a';'b';'c';'d';'e'];;
+Exception: Failure "error".
+]}
+
+{2 Exercise 4.4}
+
+What assumptions do the ‘making change’ functions make about the variables
+till and amt? Describe what could happen if these assumptions were violated.
+
+It assumes that the values of the coins are all
+positive, and that there aren't duplicates.
+
+{@ocaml[
+# let rec change till amt =
+  match till, amt with
+  | _, 0         -> []
+  | [], _        -> raise (Failure "no more coins!")
+  | c::till, amt -> if amt < c then change till amt
+                    else c :: change (c::till) (amt - c);;
+val change : int list -> int -> int list = <fun>
+]}
+
+{@ocaml skip[
+# let x = change [-1; 2; 5;] 15;;
+Stack overflow during evaluation (looping recursion?).
+]}
+
+{@ocaml[
+# let rec change till amt chg chgs =
+  match till, amt with
+  | _       , 0   -> chg::chgs
+  | []      , _   -> chgs
+  | c::till , amt -> if amt < 0 then chgs
+                     else change (c::till) (amt - c) (c::chg)
+                                 (change till amt chg chgs);;
+val change : int list -> int -> int list -> int list list -> int list list =
+  <fun>
+# change [2;2;1] 5 [] [];;
+- : int list list =
+[[1; 2; 2]; [1; 2; 2]; [1; 1; 1; 2]; [1; 2; 2]; [1; 1; 1; 2];
+ [1; 1; 1; 1; 1]]
+# change [2;1] 5 [] [];;
+- : int list list = [[1; 2; 2]; [1; 1; 1; 2]; [1; 1; 1; 1; 1]]
+]}
+
+{2 Exercise 4.5}
+
+Show that the number of ways of making change for n (ignoring order) is [O(n)] if there are two legal coin values. What if there are three, four, … coin values?
+
+
+{2 Exercise 4.6}
+
+We know nothing about the functions f and g other than their polymorphic types: [val f : 'a * 'b -> 'b * 'a] and [val g : 'a -> 'a list]. Suppose that [f (1, true)] and [g 0] are evaluated and return their results. State, with reasons, what you think the resulting values will be.
+
+The only possible result from [f (1, true)] is [(true, 1)] - it has no other way to construct values of types ['a] and ['b] so can only return the values it has been passed.
+
+In contrast, [g 0] can return many different results. For example, [[]], [[0]], [[0;0]], [[0;0;0]].
+
+{1 Lecture 5}
+
+{2 Exercise 5.1}
+
+Another sorting algorithm (selection sort) consists of looking at the elements to be sorted,
+identifying and removing a minimal element, which is placed at the head of the result. The
+tail is obtained by recursively sorting the remaining elements. State, with justification,
+the time complexity of this approach.
+
+The time complexity is {m O(n^2)}. This is because we locate one element in the list on each
+iteration of the algorithm. We need to do this {m n} times in order identify each successive
+element of the list. Additionally, to locate the minimum item will mean searching through
+every element of the remaining list of items to sort. Thus overall the complexity is {m O(n^2)}.
+
+{2 Exercise 5.2}
+
+Implement selection sort (see previous exercise) using OCaml.
+
+{@ocaml[
+# let rec selection_sort l =
+    let rec minimal (cur, xs) =
+      match xs with
+      | [] -> cur
+      | x :: xs -> if x < cur then minimal (x, xs) else minimal (cur, xs)
+    in
+    let rec remove_one x xs =
+      match xs with
+      | y::ys when y=x -> ys
+      | y::ys -> y :: remove_one x ys
+      | [] -> [] (* Should never happen *)
+    in
+    match l with
+    | [] -> []
+    | x::xs ->
+        let min = minimal (x, xs) in
+        min :: selection_sort (remove_one min l);;
+val selection_sort : 'a list -> 'a list = <fun>
+# selection_sort [5;3;4;2;6;1;7;3;3;2;3;3;10];;
+- : int list = [1; 2; 2; 3; 3; 3; 3; 3; 4; 5; 6; 7; 10]
+]}
+
+{@ocaml[
+# let rec selection_sort2 l =
+    let rec minimal (cur, xs) =
+        match xs with
+        | [] -> (cur, [])
+        | x::xs ->
+            let (min, ys) = minimal (x, xs) in
+            if cur < min
+            then (cur, min::ys)
+            else (min, cur::ys)
+    in
+    match l with
+    | [] -> []
+    | x::xs ->
+        let (min, rest) = minimal (x, xs) in
+        min :: selection_sort2 rest;;
+val selection_sort2 : 'a list -> 'a list = <fun>
+# selection_sort2 [5;3;4;2;6;1;7;3;3;2;3;3;10];;
+- : int list = [1; 2; 2; 3; 3; 3; 3; 3; 4; 5; 6; 7; 10]
+]}
+
+{@ocaml[
+# let rec selection_sort3 l =
+    let minimal (x,xs) = List.fold_left (fun (min,l) x -> if x<min then (x,min::l) else (min,x::l)) (x,[]) xs in
+    match l with
+    | [] -> []
+    | x::xs ->
+        let (min, rest) = minimal (x, xs) in
+        min :: selection_sort3 rest;;
+val selection_sort3 : 'a list -> 'a list = <fun>
+# selection_sort3 [5;3;4;2;6;1;7;3;3;2;3;3;10];;
+- : int list = [1; 2; 2; 3; 3; 3; 3; 3; 4; 5; 6; 7; 10]
+]}
+
+{@ocaml[
+# let rec selection_sort4 l =
+    match l with
+    | [] -> []
+    | x::xs ->
+        let (min,rest) =
+            List.fold_left
+                (fun (min,l) x -> if x<min then (x,min::l) else (min,x::l))
+                (x,[]) xs in
+        min :: selection_sort4 rest;;
+val selection_sort4 : 'a list -> 'a list = <fun>
+# selection_sort4 [5;3;4;2;6;1;7;3;3;2;3;3;10];;
+- : int list = [1; 2; 2; 3; 3; 3; 3; 3; 4; 5; 6; 7; 10]
+]}
+
+{2 Exercise 5.3}
+
+Another sorting algorithm (bubble sort) consists of looking at adjacent pairs of elements, 
+exchanging them if they are out of order and repeating this process until no more exchanges
+are possible. State, with justification, the time complexity of this approach.
+
+{m O(n^2)}.
+
+{2 Exercise 5.4}
+
+Implement bubble sort (see previous exercise) using OCaml.
+
+{@ocaml[
+# let bubble_sort l =
+    let rec inner = function
+        | x1::x2::xs ->
+            if x1>x2 then x2 :: (inner (x1 :: xs)) else x1 :: (inner (x2 :: xs))
+        | x -> x
+    in
+    let rec repeat l =
+        let l' = inner l in
+        if l=l' then l else repeat l'
+    in
+    repeat l;;
+val bubble_sort : 'a list -> 'a list = <fun>
+# bubble_sort [5;3;4;2;6;1;7;3;3;2;3;3;10];;
+- : int list = [1; 2; 2; 3; 3; 3; 3; 3; 4; 5; 6; 7; 10]
+]}
+
+{@ocaml[
+# let bubble_sort2 l =
+    let rec inner = function
+        | x1::x2::xs ->
+            if x1>x2
+            then
+                let (list, changed) = inner (x1 :: xs) in
+                (x2 :: list, true)
+            else
+                let (list, changed) = inner (x2 :: xs) in
+                (x1 :: list, changed)
+        | x -> (x, false)
+    in
+    let rec repeat l =
+        let (l', changed) = inner l in
+        if changed then repeat l' else l'
+    in
+    repeat l;;
+val bubble_sort2 : 'a list -> 'a list = <fun>
+# bubble_sort [5;3;4;2;6;1;7;3;3;2;3;3;10];;
+- : int list = [1; 2; 2; 3; 3; 3; 3; 3; 4; 5; 6; 7; 10]
+]}
+
+{@ocaml[
+# let rec bs_inner : int list -> int list * bool = function
+        | x1::x2::xs ->
+            if x1>x2
+            then
+                let (list, changed) = bs_inner (x1 :: xs) in
+                (x2 :: list, true)
+            else
+                let (list, changed) = bs_inner (x2 :: xs) in
+                (x1 :: list, changed)
+        | x -> (x, false);;
+val bs_inner : int list -> int list * bool = <fun>
+# let rec bs_repeat l =
+        let (l', changed) = bs_inner l in
+        if changed then bs_repeat l' else l';;
+val bs_repeat : int list -> int list = <fun>
+# #trace bs_inner;;
+bs_inner is now traced.
+# bs_repeat [2;1;3;4;5];;
+bs_inner <-- [2; 1; 3; 4; 5]
+bs_inner <-- [2; 3; 4; 5]
+bs_inner <-- [3; 4; 5]
+bs_inner <-- [4; 5]
+bs_inner <-- [5]
+bs_inner --> ([5], false)
+bs_inner --> ([4; 5], false)
+bs_inner --> ([3; 4; 5], false)
+bs_inner --> ([2; 3; 4; 5], false)
+bs_inner --> ([1; 2; 3; 4; 5], true)
+bs_inner <-- [1; 2; 3; 4; 5]
+bs_inner <-- [2; 3; 4; 5]
+bs_inner <-- [3; 4; 5]
+bs_inner <-- [4; 5]
+bs_inner <-- [5]
+bs_inner --> ([5], false)
+bs_inner --> ([4; 5], false)
+bs_inner --> ([3; 4; 5], false)
+bs_inner --> ([2; 3; 4; 5], false)
+bs_inner --> ([1; 2; 3; 4; 5], false)
+- : int list = [1; 2; 3; 4; 5]
+]}
+
+{1 Lecture 6}
+
+{2 Exercise 6.1}
+
+Give the declaration of an OCaml type for the days of the week. Comment on the practicality of such
+a type in a calendar application.
+
+{@ocaml[
+# type day =
+    | Monday
+    | Tuesday
+    | Wednesday
+    | Thursday
+    | Friday
+    | Saturday
+    | Sunday;;
+type day =
+    Monday
+  | Tuesday
+  | Wednesday
+  | Thursday
+  | Friday
+  | Saturday
+  | Sunday
+]}
+
+{2 Exercise 6.2}
+
+Write an OCaml function taking a binary tree labelled with integers and returning their sum.
+
+{@ocaml[
+# type 'a tree =
+    Lf
+  | Br of 'a * 'a tree * 'a tree;;
+type 'a tree = Lf | Br of 'a * 'a tree * 'a tree
+# let rec sum = function
+    | Lf -> 0
+    | Br (i, t1, t2) -> i + (sum t1) + (sum t2);;
+val sum : int tree -> int = <fun>
+# let t = Br(1, Br(2, Br(4, Lf, Lf),
+            Br(5, Lf, Lf)),
+      Br(3, Lf, Lf));;
+val t : int tree =
+  Br (1, Br (2, Br (4, Lf, Lf), Br (5, Lf, Lf)), Br (3, Lf, Lf))
+# sum t;;
+- : int = 15
+]}
+
+
+{2 Exercise 6.3}
+
+Using the definition of 'a tree from before:
+
+{@ocaml[type 'a tree = Lf | Br of 'a * 'a tree * 'a tree]}
+
+Examine the following function declaration. What does [ftree (1, n)] accomplish?
+
+{@ocaml[
+let rec ftree k n =
+  if n = 0 then Lf
+  else Br (k, ftree (2 * k) (n - 1), ftree (2 * k + 1) (n - 1))
+]}
+
+{@ocaml[
+let rec string_of (str_of_alpha : 'a -> string) : 'a tree -> string = function
+    | Lf -> "Lf"
+    | Br(x,l,r) ->
+      Printf.sprintf "Br(%s,%s,%s)"
+        (str_of_alpha x)
+        (string_of str_of_alpha l)
+        (string_of str_of_alpha r)
+
+let dot_escape =
+  let re = Re.(compile @@ char '"') in
+  fun oc s ->
+    (* Allow HTML strings - put everything else in double-quotes,
+       which is safe. See https://graphviz.org/doc/info/lang.html *)
+    let s =
+      if String.length s = 0 || s.[0] <> '<' then
+        "\"" ^ Re.replace_string re ~by:"\\\"" s ^ "\""
+      else
+        s
+    in
+      output_string oc s
+
+let printer (str_of_alpha : 'a -> string) (x : 'a tree) =
+  let filename,oc = Filename.open_temp_file "tree" ".dot" in
+  Printf.fprintf oc "digraph D {\n";
+  let rec dump_nodes n = function
+    | Lf -> Printf.fprintf oc "  Lf%d [label=\"Lf\"]\n" n
+    | Br (x,t1,t2) ->
+      Printf.fprintf oc "  Br%d [label=%a]\n"
+        n dot_escape (str_of_alpha x);
+        dump_nodes (2*n+1) t1;
+        dump_nodes (2*n+2) t2
+  in
+  dump_nodes 0 x;
+  let dump_edges t =
+    let rec inner n1 n2 = function
+    | Lf -> Printf.fprintf oc "  Br%d -> Lf%d\n" n1 n2
+    | Br (_,t1,t2) ->
+        Printf.fprintf oc "  Br%d -> Br%d\n" n1 n2;
+        inner n2 (2*n2+1) t1;
+        inner n2 (2*n2+2) t2
+    in
+    match t with
+    | Lf -> ()
+    | Br (_,t1,t2) -> inner 0 1 t1; inner 0 2 t2
+  in
+  dump_edges x;
+  Printf.fprintf oc "}\n";
+  close_out oc;
+  let svgfile = Filename.temp_file "tree" ".svg" in
+  let cmd = "dot -Tsvg -o" ^ svgfile ^ " " ^ filename in
+  let _status = Sys.command cmd in
+  let ic = open_in svgfile in
+  let n = in_channel_length ic in
+  let data = really_input_string ic n in
+  close_in ic;
+  Mime_printer.push "image/svg" data
+
+let rec preorder = function
+  | Lf -> []
+  | Br(x,l,r) -> x :: preorder l @ preorder r
+]}
+
+{@ocaml[
+# let p = (printer (string_of_int));;
+val p : int tree -> unit = <fun>
+# #directory "/usr/lib/ocaml/compiler-libs";;
+# #install_printer p;;;
+# ftree 1 3;;
+- : int tree =
+][
+{%html: <?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: D Pages: 1 -->
+<svg width="566pt" height="260pt"
+ viewBox="0.00 0.00 566.00 260.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 256)">
+<title>D</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-256 562,-256 562,4 -4,4"/>
+<!-- Br0 -->
+<g id="node1" class="node">
+<title>Br0</title>
+<ellipse fill="none" stroke="black" cx="279" cy="-234" rx="27" ry="18"/>
+<text text-anchor="middle" x="279" y="-230.3" font-family="Times,serif" font-size="14.00">1</text>
+</g>
+<!-- Br1 -->
+<g id="node2" class="node">
+<title>Br1</title>
+<ellipse fill="none" stroke="black" cx="207" cy="-162" rx="27" ry="18"/>
+<text text-anchor="middle" x="207" y="-158.3" font-family="Times,serif" font-size="14.00">2</text>
+</g>
+<!-- Br0&#45;&gt;Br1 -->
+<g id="edge1" class="edge">
+<title>Br0&#45;&gt;Br1</title>
+<path fill="none" stroke="black" d="M264.43,-218.83C254.25,-208.94 240.48,-195.55 228.97,-184.36"/>
+<polygon fill="black" stroke="black" points="231.41,-181.85 221.8,-177.38 226.53,-186.87 231.41,-181.85"/>
+</g>
+<!-- Br2 -->
+<g id="node9" class="node">
+<title>Br2</title>
+<ellipse fill="none" stroke="black" cx="351" cy="-162" rx="27" ry="18"/>
+<text text-anchor="middle" x="351" y="-158.3" font-family="Times,serif" font-size="14.00">3</text>
+</g>
+<!-- Br0&#45;&gt;Br2 -->
+<g id="edge8" class="edge">
+<title>Br0&#45;&gt;Br2</title>
+<path fill="none" stroke="black" d="M293.57,-218.83C303.75,-208.94 317.52,-195.55 329.03,-184.36"/>
+<polygon fill="black" stroke="black" points="331.47,-186.87 336.2,-177.38 326.59,-181.85 331.47,-186.87"/>
+</g>
+<!-- Br3 -->
+<g id="node3" class="node">
+<title>Br3</title>
+<ellipse fill="none" stroke="black" cx="99" cy="-90" rx="27" ry="18"/>
+<text text-anchor="middle" x="99" y="-86.3" font-family="Times,serif" font-size="14.00">4</text>
+</g>
+<!-- Br1&#45;&gt;Br3 -->
+<g id="edge2" class="edge">
+<title>Br1&#45;&gt;Br3</title>
+<path fill="none" stroke="black" d="M188.19,-148.81C171,-137.67 145.38,-121.06 126.01,-108.5"/>
+<polygon fill="black" stroke="black" points="127.89,-105.56 117.6,-103.05 124.08,-111.43 127.89,-105.56"/>
+</g>
+<!-- Br4 -->
+<g id="node6" class="node">
+<title>Br4</title>
+<ellipse fill="none" stroke="black" cx="207" cy="-90" rx="27" ry="18"/>
+<text text-anchor="middle" x="207" y="-86.3" font-family="Times,serif" font-size="14.00">5</text>
+</g>
+<!-- Br1&#45;&gt;Br4 -->
+<g id="edge5" class="edge">
+<title>Br1&#45;&gt;Br4</title>
+<path fill="none" stroke="black" d="M207,-143.7C207,-135.98 207,-126.71 207,-118.11"/>
+<polygon fill="black" stroke="black" points="210.5,-118.1 207,-108.1 203.5,-118.1 210.5,-118.1"/>
+</g>
+<!-- Lf7 -->
+<g id="node4" class="node">
+<title>Lf7</title>
+<ellipse fill="none" stroke="black" cx="27" cy="-18" rx="27" ry="18"/>
+<text text-anchor="middle" x="27" y="-14.3" font-family="Times,serif" font-size="14.00">Lf</text>
+</g>
+<!-- Br3&#45;&gt;Lf7 -->
+<g id="edge3" class="edge">
+<title>Br3&#45;&gt;Lf7</title>
+<path fill="none" stroke="black" d="M84.43,-74.83C74.25,-64.94 60.48,-51.55 48.97,-40.36"/>
+<polygon fill="black" stroke="black" points="51.41,-37.85 41.8,-33.38 46.53,-42.87 51.41,-37.85"/>
+</g>
+<!-- Lf8 -->
+<g id="node5" class="node">
+<title>Lf8</title>
+<ellipse fill="none" stroke="black" cx="99" cy="-18" rx="27" ry="18"/>
+<text text-anchor="middle" x="99" y="-14.3" font-family="Times,serif" font-size="14.00">Lf</text>
+</g>
+<!-- Br3&#45;&gt;Lf8 -->
+<g id="edge4" class="edge">
+<title>Br3&#45;&gt;Lf8</title>
+<path fill="none" stroke="black" d="M99,-71.7C99,-63.98 99,-54.71 99,-46.11"/>
+<polygon fill="black" stroke="black" points="102.5,-46.1 99,-36.1 95.5,-46.1 102.5,-46.1"/>
+</g>
+<!-- Lf9 -->
+<g id="node7" class="node">
+<title>Lf9</title>
+<ellipse fill="none" stroke="black" cx="171" cy="-18" rx="27" ry="18"/>
+<text text-anchor="middle" x="171" y="-14.3" font-family="Times,serif" font-size="14.00">Lf</text>
+</g>
+<!-- Br4&#45;&gt;Lf9 -->
+<g id="edge6" class="edge">
+<title>Br4&#45;&gt;Lf9</title>
+<path fill="none" stroke="black" d="M198.65,-72.76C194.29,-64.28 188.85,-53.71 183.96,-44.2"/>
+<polygon fill="black" stroke="black" points="186.99,-42.44 179.3,-35.15 180.77,-45.64 186.99,-42.44"/>
+</g>
+<!-- Lf10 -->
+<g id="node8" class="node">
+<title>Lf10</title>
+<ellipse fill="none" stroke="black" cx="243" cy="-18" rx="27" ry="18"/>
+<text text-anchor="middle" x="243" y="-14.3" font-family="Times,serif" font-size="14.00">Lf</text>
+</g>
+<!-- Br4&#45;&gt;Lf10 -->
+<g id="edge7" class="edge">
+<title>Br4&#45;&gt;Lf10</title>
+<path fill="none" stroke="black" d="M215.35,-72.76C219.71,-64.28 225.15,-53.71 230.04,-44.2"/>
+<polygon fill="black" stroke="black" points="233.23,-45.64 234.7,-35.15 227.01,-42.44 233.23,-45.64"/>
+</g>
+<!-- Br5 -->
+<g id="node10" class="node">
+<title>Br5</title>
+<ellipse fill="none" stroke="black" cx="351" cy="-90" rx="27" ry="18"/>
+<text text-anchor="middle" x="351" y="-86.3" font-family="Times,serif" font-size="14.00">6</text>
+</g>
+<!-- Br2&#45;&gt;Br5 -->
+<g id="edge9" class="edge">
+<title>Br2&#45;&gt;Br5</title>
+<path fill="none" stroke="black" d="M351,-143.7C351,-135.98 351,-126.71 351,-118.11"/>
+<polygon fill="black" stroke="black" points="354.5,-118.1 351,-108.1 347.5,-118.1 354.5,-118.1"/>
+</g>
+<!-- Br6 -->
+<g id="node13" class="node">
+<title>Br6</title>
+<ellipse fill="none" stroke="black" cx="459" cy="-90" rx="27" ry="18"/>
+<text text-anchor="middle" x="459" y="-86.3" font-family="Times,serif" font-size="14.00">7</text>
+</g>
+<!-- Br2&#45;&gt;Br6 -->
+<g id="edge12" class="edge">
+<title>Br2&#45;&gt;Br6</title>
+<path fill="none" stroke="black" d="M369.81,-148.81C387,-137.67 412.62,-121.06 431.99,-108.5"/>
+<polygon fill="black" stroke="black" points="433.92,-111.43 440.4,-103.05 430.11,-105.56 433.92,-111.43"/>
+</g>
+<!-- Lf11 -->
+<g id="node11" class="node">
+<title>Lf11</title>
+<ellipse fill="none" stroke="black" cx="315" cy="-18" rx="27" ry="18"/>
+<text text-anchor="middle" x="315" y="-14.3" font-family="Times,serif" font-size="14.00">Lf</text>
+</g>
+<!-- Br5&#45;&gt;Lf11 -->
+<g id="edge10" class="edge">
+<title>Br5&#45;&gt;Lf11</title>
+<path fill="none" stroke="black" d="M342.65,-72.76C338.29,-64.28 332.85,-53.71 327.96,-44.2"/>
+<polygon fill="black" stroke="black" points="330.99,-42.44 323.3,-35.15 324.77,-45.64 330.99,-42.44"/>
+</g>
+<!-- Lf12 -->
+<g id="node12" class="node">
+<title>Lf12</title>
+<ellipse fill="none" stroke="black" cx="387" cy="-18" rx="27" ry="18"/>
+<text text-anchor="middle" x="387" y="-14.3" font-family="Times,serif" font-size="14.00">Lf</text>
+</g>
+<!-- Br5&#45;&gt;Lf12 -->
+<g id="edge11" class="edge">
+<title>Br5&#45;&gt;Lf12</title>
+<path fill="none" stroke="black" d="M359.35,-72.76C363.71,-64.28 369.15,-53.71 374.04,-44.2"/>
+<polygon fill="black" stroke="black" points="377.23,-45.64 378.7,-35.15 371.01,-42.44 377.23,-45.64"/>
+</g>
+<!-- Lf13 -->
+<g id="node14" class="node">
+<title>Lf13</title>
+<ellipse fill="none" stroke="black" cx="459" cy="-18" rx="27" ry="18"/>
+<text text-anchor="middle" x="459" y="-14.3" font-family="Times,serif" font-size="14.00">Lf</text>
+</g>
+<!-- Br6&#45;&gt;Lf13 -->
+<g id="edge13" class="edge">
+<title>Br6&#45;&gt;Lf13</title>
+<path fill="none" stroke="black" d="M459,-71.7C459,-63.98 459,-54.71 459,-46.11"/>
+<polygon fill="black" stroke="black" points="462.5,-46.1 459,-36.1 455.5,-46.1 462.5,-46.1"/>
+</g>
+<!-- Lf14 -->
+<g id="node15" class="node">
+<title>Lf14</title>
+<ellipse fill="none" stroke="black" cx="531" cy="-18" rx="27" ry="18"/>
+<text text-anchor="middle" x="531" y="-14.3" font-family="Times,serif" font-size="14.00">Lf</text>
+</g>
+<!-- Br6&#45;&gt;Lf14 -->
+<g id="edge14" class="edge">
+<title>Br6&#45;&gt;Lf14</title>
+<path fill="none" stroke="black" d="M473.57,-74.83C483.75,-64.94 497.52,-51.55 509.03,-40.36"/>
+<polygon fill="black" stroke="black" points="511.47,-42.87 516.2,-33.38 506.59,-37.85 511.47,-42.87"/>
+</g>
+</g>
+</svg>
+ %}
+]}
+
+{2 Exercise 6.4}
+
+Give the declaration of an OCaml type for arithmetic expressions that have the
+following possibilities: floating-point numbers, variables (represented by strings),
+or expressions of the form −E, E+E, E×E.
+
+{@ocaml[
+# type expr =
+   | Float of float
+   | Var of string
+   | Neg of expr
+   | Sum of (expr * expr)
+   | Prod of (expr * expr);;
+type expr =
+    Float of float
+  | Var of string
+  | Neg of expr
+  | Sum of (expr * expr)
+  | Prod of (expr * expr)
+]}
+
+{2 Exercise 6.5}
+
+Continuing the previous exercise, write a function that evaluates an expression. If the expression
+contains any variables, your function should raise an exception indicating the variable name.
+
+{@ocaml[
+# exception Var of string;;
+exception Var of string
+# let rec eval e =
+    match e with
+    | Float f -> f
+    | Var x -> raise (Var x)
+    | Neg x -> -. (eval x)
+    | Sum (x, y) -> (eval x) +. (eval y)
+    | Prod (x, y) -> (eval x) *. (eval y);;
+val eval : expr -> float = <fun>
+# eval (Sum (Prod (Float 2.0, Float 3.0), Float 4.0));;
+- : float = 10.
+# eval (Sum (Var "x", Float 2.0));;
+Exception: Var "x".
+]}

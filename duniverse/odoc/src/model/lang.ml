@@ -16,6 +16,30 @@
 
 open Paths
 
+module Locations = struct
+  type t = {
+    source_parent : Identifier.SourcePage.t;
+        (** Correspond to where the source code is stored. Might be different
+            from the root component of the identifier inside expansions. *)
+    anchor : string option;
+        (** Location of the definition in the implementation file. *)
+  }
+end
+
+module Source_info = struct
+  type anchor = { anchor : string }
+
+  type jmp_to_def = Occurence of anchor | Def of string
+
+  type info = Syntax of string | Local_jmp of jmp_to_def
+
+  type 'a with_pos = 'a * (int * int)
+
+  type infos = info with_pos list
+
+  type t = { id : Identifier.SourcePage.t; infos : infos }
+end
+
 (** {3 Modules} *)
 
 module rec Module : sig
@@ -25,6 +49,8 @@ module rec Module : sig
 
   type t = {
     id : Identifier.Module.t;
+    locs : Locations.t option;
+        (** Locations might not be set when the module is artificially constructed from a functor argument. *)
     doc : Comment.docs;
     type_ : decl;
     canonical : Path.Module.t option;
@@ -101,6 +127,8 @@ and ModuleType : sig
 
   type t = {
     id : Identifier.ModuleType.t;
+    locs : Locations.t option;
+        (** Can be [None] for module types created by a type substitution. *)
     doc : Comment.docs;
     canonical : Path.ModuleType.t option;
     expr : expr option;
@@ -240,6 +268,7 @@ and TypeDecl : sig
 
   type t = {
     id : Identifier.Type.t;
+    locs : Locations.t option;
     doc : Comment.docs;
     canonical : Path.Type.t option;
     equation : Equation.t;
@@ -254,6 +283,7 @@ and Extension : sig
   module Constructor : sig
     type t = {
       id : Identifier.Extension.t;
+      locs : Locations.t option;
       doc : Comment.docs;
       args : TypeDecl.Constructor.argument;
       res : TypeExpr.t option;
@@ -275,6 +305,7 @@ end =
 and Exception : sig
   type t = {
     id : Identifier.Exception.t;
+    locs : Locations.t option;
     doc : Comment.docs;
     args : TypeDecl.Constructor.argument;
     res : TypeExpr.t option;
@@ -289,9 +320,10 @@ and Value : sig
 
   type t = {
     id : Identifier.Value.t;
+    locs : Locations.t option;
+    value : value;
     doc : Comment.docs;
     type_ : TypeExpr.t;
-    value : value;
   }
 end =
   Value
@@ -305,6 +337,7 @@ and Class : sig
 
   type t = {
     id : Identifier.Class.t;
+    locs : Locations.t option;
     doc : Comment.docs;
     virtual_ : bool;
     params : TypeDecl.param list;
@@ -323,6 +356,7 @@ and ClassType : sig
 
   type t = {
     id : Identifier.ClassType.t;
+    locs : Locations.t option;
     doc : Comment.docs;
     virtual_ : bool;
     params : TypeDecl.param list;
@@ -464,21 +498,37 @@ module rec Compilation_unit : sig
     expansion : Signature.t option;
     linked : bool;  (** Whether this unit has been linked. *)
     canonical : Path.Module.t option;
+    source_info : Source_info.t option;
   }
 end =
   Compilation_unit
 
 module rec Page : sig
+  type child =
+    | Page_child of string
+    | Module_child of string
+    | Source_tree_child of string
+
   type t = {
     name : Identifier.Page.t;
     root : Root.t;
     content : Comment.docs;
-    children : Reference.t list;
+    children : child list;
     digest : Digest.t;
     linked : bool;
   }
 end =
   Page
+
+module rec SourceTree : sig
+  type t = {
+    name : Identifier.Page.t;
+    root : Root.t;
+    source_children : Identifier.SourcePage.t list;
+    digest : Digest.t;
+  }
+end =
+  SourceTree
 
 let umty_of_mty : ModuleType.expr -> ModuleType.U.expr option = function
   | Signature sg -> Some (Signature sg)

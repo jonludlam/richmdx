@@ -1,7 +1,6 @@
 open Import
 open Dune_file
 open Memo.O
-module SC = Super_context
 
 let ( ++ ) = Path.Build.relative
 
@@ -86,6 +85,8 @@ let add_rule sctx =
   Super_context.add_rule sctx ~dir
 
 module Paths = struct
+  let odoc_support_dirname = "_odoc_support"
+
   let root (context : Context.t) =
     Path.Build.relative context.Context.build_dir "_doc"
 
@@ -112,9 +113,7 @@ module Paths = struct
 
   let gen_mld_dir ctx pkg = root ctx ++ "_mlds" ++ Package.Name.to_string pkg
 
-  let css_file ctx = html_root ctx ++ "odoc.css"
-
-  let highlight_pack_js ctx = html_root ctx ++ "highlight.pack.js"
+  let odoc_support ctx = html_root ctx ++ odoc_support_dirname
 
   let toplevel_index ctx = html_root ctx ++ "index.html"
 end
@@ -187,16 +186,29 @@ end = struct
   let odoc_input t = t
 end
 
-let odoc sctx =
-  let dir = (Super_context.context sctx).build_dir in
-  SC.resolve_program sctx ~dir "odoc" ~loc:None ~hint:"opam install odoc"
-
 let odoc_base_flags sctx build_dir =
   let open Memo.O in
   let+ conf = Super_context.odoc sctx ~dir:build_dir in
   match conf.Env_node.Odoc.warnings with
   | Fatal -> Command.Args.A "--warn-error"
   | Nonfatal -> S []
+
+let run_odoc sctx ~dir command ~flags_for args =
+  let build_dir = (Super_context.context sctx).build_dir in
+  let open Memo.O in
+  let* program =
+    Super_context.resolve_program sctx ~dir:build_dir "odoc" ~loc:None
+      ~hint:"opam install odoc"
+  in
+  let+ base_flags =
+    match flags_for with
+    | None -> Memo.return Command.Args.empty
+    | Some path -> odoc_base_flags sctx path
+  in
+  let deps = Action_builder.env_var "ODOC_SYNTAX" in
+  let open Action_builder.With_targets.O in
+  Action_builder.with_no_targets deps
+  >>> Command.run ~dir program [ A command; base_flags; S args ]
 
 let module_deps (m : Module.t) ~obj_dir ~(dep_graphs : Dep_graph.Ml_kind.t) =
   Action_builder.dyn_paths_unit
@@ -216,22 +228,23 @@ let compile_module sctx ~obj_dir (m : Module.t) ~includes:(file_deps, iflags)
   let+ () =
     let* action_with_targets =
       let doc_dir = Path.build (Obj_dir.odoc_dir obj_dir) in
-      let* odoc = odoc sctx in
-      let+ odoc_base_flags = odoc_base_flags sctx odoc_file in
+      let+ run_odoc =
+        run_odoc sctx ~dir:doc_dir "compile" ~flags_for:(Some odoc_file)
+          [ A "-I"
+          ; Path doc_dir
+          ; iflags
+          ; As [ "--pkg"; pkg_or_lnu ]
+          ; A "-o"
+          ; Target odoc_file
+          ; Dep
+              (Path.build
+                 (Obj_dir.Module.cmti_file ~cm_kind:(Ocaml Cmi) obj_dir m))
+          ]
+      in
       let open Action_builder.With_targets.O in
       Action_builder.with_no_targets file_deps
       >>> Action_builder.with_no_targets (module_deps m ~obj_dir ~dep_graphs)
-      >>> Command.run ~dir:doc_dir odoc
-            [ A "compile"
-            ; odoc_base_flags
-            ; A "-I"
-            ; Path doc_dir
-            ; iflags
-            ; As [ "--pkg"; pkg_or_lnu ]
-            ; A "-o"
-            ; Target odoc_file
-            ; Dep (Path.build (Obj_dir.Module.cmti_file obj_dir m))
-            ]
+      >>> run_odoc
     in
     add_rule sctx action_with_targets
   in
@@ -241,20 +254,17 @@ let compile_mld sctx (m : Mld.t) ~includes ~doc_dir ~pkg =
   let open Memo.O in
   let odoc_file = Mld.odoc_file m ~doc_dir in
   let odoc_input = Mld.odoc_input m in
-  let* odoc = odoc sctx in
-  let* odoc_base_flags = odoc_base_flags sctx odoc_input in
-  let+ () =
-    add_rule sctx
-      (Command.run ~dir:(Path.build doc_dir) odoc
-         [ A "compile"
-         ; odoc_base_flags
-         ; Command.Args.dyn includes
-         ; As [ "--pkg"; Package.Name.to_string pkg ]
-         ; A "-o"
-         ; Target odoc_file
-         ; Dep (Path.build odoc_input)
-         ])
+  let* run_odoc =
+    run_odoc sctx ~dir:(Path.build doc_dir) "compile"
+      ~flags_for:(Some odoc_input)
+      [ Command.Args.dyn includes
+      ; As [ "--pkg"; Package.Name.to_string pkg ]
+      ; A "-o"
+      ; Target odoc_file
+      ; Dep (Path.build odoc_input)
+      ]
   in
+  let+ () = add_rule sctx run_odoc in
   odoc_file
 
 let odoc_include_flags ctx pkg requires =
@@ -281,21 +291,19 @@ let link_odoc_rules sctx (odoc_file : odoc_artefact) ~pkg ~requires =
   let ctx = Super_context.context sctx in
   let deps = Dep.deps ctx pkg requires in
   let open Memo.O in
-  let* odoc = odoc sctx
-  and* odoc_base_flags = odoc_base_flags sctx odoc_file.odoc_file in
+  let* run_odoc =
+    run_odoc sctx
+      ~dir:(Path.build (Paths.html_root ctx))
+      "link" ~flags_for:(Some odoc_file.odoc_file)
+      [ odoc_include_flags ctx pkg requires
+      ; A "-o"
+      ; Target odoc_file.odocl_file
+      ; Dep (Path.build odoc_file.odoc_file)
+      ]
+  in
   add_rule sctx
     (let open Action_builder.With_targets.O in
-    Action_builder.with_no_targets deps
-    >>> Command.run
-          ~dir:(Path.build (Paths.html_root ctx))
-          odoc
-          [ A "link"
-          ; odoc_base_flags
-          ; odoc_include_flags ctx pkg requires
-          ; A "-o"
-          ; Target odoc_file.odocl_file
-          ; Dep (Path.build odoc_file.odoc_file)
-          ])
+    Action_builder.with_no_targets deps >>> run_odoc)
 
 let setup_library_odoc_rules cctx (local_lib : Lib.Local.t) =
   let open Memo.O in
@@ -332,14 +340,32 @@ let setup_html sctx (odoc_file : odoc_artefact) =
     match odoc_file.source with
     | Mld -> (odoc_file.html_file, [])
     | Module ->
-      (* Dummy target so that the bellow rule as at least one target. We do this
+      (* Dummy target so that the below rule as at least one target. We do this
          because we don't know the targets of odoc in this case. The proper way
          to support this would be to have directory targets. *)
       let dummy = Action_builder.create_file (odoc_file.html_dir ++ ".dummy") in
       (odoc_file.html_dir, [ dummy ])
   in
   let open Memo.O in
-  let* odoc = odoc sctx in
+  let odoc_support_path = Paths.odoc_support ctx in
+  let html_output = Paths.html_root ctx in
+  let support_relative =
+    Path.reach (Path.build odoc_support_path) ~from:(Path.build html_output)
+  in
+  let* run_odoc =
+    run_odoc sctx
+      ~dir:(Path.build (Paths.html_root ctx))
+      "html-generate" ~flags_for:None
+      [ A "-o"
+      ; Path (Path.build (Paths.html_root ctx))
+      ; A "--support-uri"
+      ; A support_relative
+      ; A "--theme-uri"
+      ; A support_relative
+      ; Dep (Path.build odoc_file.odocl_file)
+      ; Hidden_targets [ odoc_file.html_file ]
+      ]
+  in
   add_rule sctx
     (Action_builder.progn
        (Action_builder.with_no_targets
@@ -347,30 +373,24 @@ let setup_html sctx (odoc_file : odoc_artefact) =
              (Action.Full.make
                 (Action.Progn
                    [ Action.Remove_tree to_remove
-                   ; Action.Mkdir (Path.build odoc_file.html_dir)
+                   ; Action.Mkdir odoc_file.html_dir
                    ])))
-       :: Command.run
-            ~dir:(Path.build (Paths.html_root ctx))
-            odoc
-            [ A "html-generate"
-            ; A "-o"
-            ; Path (Path.build (Paths.html_root ctx))
-            ; Dep (Path.build odoc_file.odocl_file)
-            ; Hidden_targets [ odoc_file.html_file ]
-            ]
-       :: dummy))
+       :: run_odoc :: dummy))
 
 let setup_css_rule sctx =
   let open Memo.O in
   let ctx = Super_context.context sctx in
-  let* odoc = odoc sctx in
-  add_rule sctx
-    (Command.run ~dir:(Path.build ctx.build_dir) odoc
-       [ A "support-files"
-       ; A "-o"
-       ; Path (Path.build (Paths.html_root ctx))
-       ; Hidden_targets [ Paths.css_file ctx; Paths.highlight_pack_js ctx ]
-       ])
+  let dir = Paths.odoc_support ctx in
+  let* run_odoc =
+    let+ cmd =
+      run_odoc sctx ~dir:(Path.build ctx.build_dir) "support-files"
+        ~flags_for:None
+        [ A "-o"; Path (Path.build dir) ]
+    in
+    cmd
+    |> Action_builder.With_targets.add_directories ~directory_targets:[ dir ]
+  in
+  add_rule sctx run_odoc
 
 let sp = Printf.sprintf
 
@@ -395,7 +415,7 @@ let setup_toplevel_index_rule sctx =
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <title>index</title>
-    <link rel="stylesheet" href="./odoc.css"/>
+    <link rel="stylesheet" href="./%s/odoc.css"/>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   </head>
@@ -410,7 +430,7 @@ let setup_toplevel_index_rule sctx =
     </main>
   </body>
 </html>|}
-      list_items
+      Paths.odoc_support_dirname list_items
   in
   let ctx = Super_context.context sctx in
   add_rule sctx (Action_builder.write_file (Paths.toplevel_index ctx) html)
@@ -486,7 +506,7 @@ let create_odoc ctx ~target odoc_file =
 
 let static_html ctx =
   let open Paths in
-  [ css_file ctx; highlight_pack_js ctx; toplevel_index ctx ]
+  [ odoc_support ctx; toplevel_index ctx ]
 
 let check_mlds_no_dupes ~pkg ~mlds =
   match
@@ -777,14 +797,11 @@ let setup_private_library_doc_alias sctx ~scope ~dir (l : Dune_file.Library.t) =
     Rules.Produce.Alias.add_deps (Alias.private_doc ~dir)
       (lib |> Dep.html_alias ctx |> Dune_engine.Dep.alias |> Action_builder.dep)
 
-let has_rules m =
+let has_rules ?(directory_targets = Path.Build.Map.empty) m =
   let rules = Rules.collect_unit (fun () -> m) in
   Memo.return
     (Build_config.Rules
-       { rules
-       ; build_dir_only_sub_dirs = Subdir_set.empty
-       ; directory_targets = Path.Build.Map.empty
-       })
+       { rules; build_dir_only_sub_dirs = Subdir_set.empty; directory_targets })
 
 let with_package pkg ~f =
   let pkg = Package.Name.of_string pkg in
@@ -809,7 +826,12 @@ let gen_rules sctx ~dir:_ rest =
          ; directory_targets = Path.Build.Map.empty
          })
   | [ "_html" ] ->
-    has_rules (setup_css_rule sctx >>> setup_toplevel_index_rule sctx)
+    let ctx = Super_context.context sctx in
+    let directory_targets =
+      Path.Build.Map.singleton (Paths.odoc_support ctx) Loc.none
+    in
+    has_rules ~directory_targets
+      (setup_css_rule sctx >>> setup_toplevel_index_rule sctx)
   | [ "_mlds"; pkg ] ->
     with_package pkg ~f:(fun pkg ->
         let* _mlds, rules = package_mlds sctx ~pkg in
@@ -890,4 +912,4 @@ let gen_rules sctx ~dir:_ rest =
            setup_pkg_html_rules name
        in
        ())
-  | _ -> Memo.return Build_config.Redirect_to_parent
+  | _ -> Memo.return (Build_config.Redirect_to_parent Build_config.Rules.empty)

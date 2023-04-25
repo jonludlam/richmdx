@@ -1,151 +1,141 @@
 module Code_block = struct
-  type metadata = {
-    language_tag : string Odoc_parser.Loc.with_location;
-    labels : string Odoc_parser.Loc.with_location option;
-  }
+  type metadata = { language_tag : string; labels : string option }
 
   type t = {
-    location : Odoc_parser.Loc.span;
     metadata : metadata option;
-    contents : string;
-    has_results : bool;
+    delimiter : string option;
+    content : Location.t; (* Location of the content *)
+    code_block : Location.t; (* Location of the enclosing code block *)
   }
 end
 
-let drop_last lst =
-  match List.rev lst with
-  | [] -> None
-  | last :: rev_tl -> Some (List.rev rev_tl, last)
+(* Parse and extract code block metadata from an odoc formatted docstring.
 
-(* drop_first_and_last [1; 2; 3; 4] = Some (1, Some ([2; 3], 4)). *)
-let drop_first_and_last = function
-  | [] -> None
-  | first :: tl -> Some (first, drop_last tl)
+   Code blocks are the only thing we're interested in. This function parses
+   the given text and extracts the metadata and enough location information
+   from the code blocks be able to String.sub them out of the original text.
 
-let slice lines ~(start : Odoc_parser.Loc.point) ~(end_ : Odoc_parser.Loc.point)
-    =
-  let lines_to_include =
-    Util.Array.slice lines ~from:(start.line - 1) ~to_:(end_.line - 1)
-    |> Array.to_list
-  in
-  match drop_first_and_last lines_to_include with
-  | None -> ""
-  | Some (line, None) ->
-      String.sub line start.column (end_.column - start.column)
-  (* Imagine we were slicing the file from (Line 2, Column 3) to (Line 6, Column 7):
+   [location] is the location of this docstring within the original file
+   (ie, the location of the contents of the documentation comment). This is
+   required so we can splice out the code blocks from the original file.
 
-       0123456789
-       1 ----------
-       2 ---[---
-       3 ---------
-       4 --
-       5 ----------
-       6 -------]--
-       7 ----------
-       8 ----------
+   The results are prepended in reverse order onto [acc]. *)
+let extract_code_block_info acc ~(location : Lexing.position) ~docstring =
+  let module O = Odoc_parser in
+  let parsed = O.parse_comment ~location ~text:docstring in
 
-       The case below handles this multiline case, concatenating the included substrings
-       from lines 2-6 ([lines_to_include]). *)
-  | Some (first_line, Some (stripped, last_line)) ->
-      let first_line =
-        String.sub first_line start.column
-          (String.length first_line - start.column)
-      in
-      let last_line = String.sub last_line 0 end_.column in
-      String.concat "\n" ([ first_line ] @ stripped @ [ last_line ])
-
-let extract_code_blocks parsed =
-  let rec acc blocks =
-    List.map
-      (fun block ->
-        match Odoc_parser.Loc.value block with
-        | `Code_block (metadata, { Odoc_parser.Loc.value = contents; _ }, results) ->
-            let metadata =
-              Option.map
-                (fun (language_tag, labels) ->
-                  Code_block.{ language_tag; labels })
-                metadata
-            in
-            [ { Code_block.location = block.location; metadata; contents; has_results = match results with | Some _ -> true | None -> false } ]
-        | `List (_, _, lists) -> List.map acc lists |> List.concat
-        | _ -> [])
-      blocks
-    |> List.concat
-  in
+  (* If odoc-parser produced any warnings, we raise them as errors here *)
   List.iter
-    (fun error -> failwith (Odoc_parser.Warning.to_string error))
-    (Odoc_parser.warnings parsed);
-  List.map
-    (fun element ->
-      match element with
-      | { Odoc_parser.Loc.value = #Odoc_parser.Ast.nestable_block_element; _ }
-        as e ->
-          acc [ e ]
-      | { value = `Tag tag; _ } -> (
-          match tag with
-          | `Deprecated blocks -> acc blocks
-          | `Param (_, blocks) -> acc blocks
-          | `Raise (_, blocks) -> acc blocks
-          | `Return blocks -> acc blocks
-          | `See (_, _, blocks) -> acc blocks
-          | `Before (_, blocks) -> acc blocks
-          | _ -> [])
-      | { value = `Heading _; _ } -> [])
-    (Odoc_parser.ast parsed)
-  |> List.concat
+    (fun error -> failwith (O.Warning.to_string error))
+    (O.warnings parsed);
 
-let docstrings lexbuf =
-  let rec loop list =
-    match Lexer.token_with_comments lexbuf with
-    | Parser.EOF -> list
-    | Parser.DOCSTRING docstring ->
-        let docstring =
-          ( Docstrings.docstring_body docstring,
-            Docstrings.docstring_loc docstring )
-        in
-        loop (docstring :: list)
-    | _ -> loop list
-  in
-  loop [] |> List.rev
+  (* Extract the useful info from what odoc has given us.
 
-let convert_pos (p : Lexing.position) (pt : Odoc_parser.Loc.point) =
-  { p with pos_lnum = pt.line; pos_cnum = pt.column }
-
-let convert_loc (loc : Location.t) (sp : Odoc_parser.Loc.span) =
-  let loc_start = convert_pos loc.loc_start sp.start in
-  let loc_end = convert_pos loc.loc_end sp.end_ in
-  { loc with loc_start; loc_end }
-
-let docstring_code_blocks str =
-  Lexer.handle_docstrings := true;
-  Lexer.init ();
-  List.map
-    (fun (docstring, (cmt_loc : Location.t)) ->
-      let location =
-        { cmt_loc.loc_start with pos_cnum = cmt_loc.loc_start.pos_cnum + 3 }
+     Note, we don't use the contents of the code block that odoc has handed us
+     as that has been stripped and we need all the relevant whitespace.
+     Fortunately the location info give us enough info to be able to extract
+     the code from the original text, whitespace and all.
+  *)
+  let handle_code_block : O.Loc.span -> O.Ast.code_block -> Code_block.t =
+    let convert_loc (sp : O.Loc.span) =
+      Location.
+        {
+          loc_start = O.position_of_point parsed sp.start;
+          loc_end = O.position_of_point parsed sp.end_;
+          loc_ghost = false;
+        }
+    in
+    fun location c ->
+      let metadata =
+        Option.map
+          (fun {O.Ast.language; tags} ->
+            let language_tag = O.Loc.value language in
+            let labels = Option.map O.Loc.value tags in
+            Code_block.{ language_tag; labels })
+          c.O.Ast.meta
       in
-      let parsed = Odoc_parser.parse_comment ~location ~text:docstring in
-      let blocks = extract_code_blocks parsed in
-      List.map
-        (fun (b : Code_block.t) -> (b, convert_loc cmt_loc b.location))
-        blocks)
-    (docstrings (Lexing.from_string str))
-  |> List.concat
+      let content = convert_loc (O.Loc.location c.content) in
+      let code_block = convert_loc location in
+      let delimiter = c.delimiter in
+      { metadata; content; code_block; delimiter }
+  in
 
-let make_block ~loc code_block =
+  (* Fold over the results from odoc-parser, recurse where necessary
+     and extract the code block metadata *)
+  let rec fold_fn acc (elt : O.Ast.block_element O.Loc.with_location) =
+    match elt with
+    | { O.Loc.value = `Code_block c; location } ->
+        handle_code_block location c :: acc
+    | { O.Loc.value = `List (_, _, lists); _ } ->
+        List.fold_left (List.fold_left fold_fn) acc (lists :> O.Ast.t list)
+    | { O.Loc.value = `Tag tag; _ } -> (
+        match tag with
+        | `Deprecated blocks
+        | `Param (_, blocks)
+        | `Raise (_, blocks)
+        | `Return blocks
+        | `See (_, _, blocks)
+        | `Before (_, blocks) ->
+            List.fold_left fold_fn acc (blocks :> O.Ast.t)
+        | _ -> acc)
+    | _ -> acc
+  in
+
+  List.fold_left fold_fn acc (O.ast parsed)
+
+(* This function handles string containing ocaml code. It parses it as ocaml
+   via compiler-libs, then for each odoc-formatted comment it then parses
+   that via odoc-parser. The end result is a list of metadata about the code
+   blocks within the comments. The result is given as an in-order list of
+   [Code_block.t] values. *)
+let docstring_code_blocks str =
+  let initial_handle_docstrings = !Lexer.handle_docstrings in
+  Fun.protect
+    ~finally:(fun () -> Lexer.handle_docstrings := initial_handle_docstrings)
+    (fun () ->
+      Lexer.handle_docstrings := true;
+      Lexer.init ();
+      let lexbuf = Lexing.from_string str in
+      let rec loop list =
+        match Lexer.token_with_comments lexbuf with
+        | Parser.EOF -> list
+        | Parser.DOCSTRING docstring ->
+            let body = Docstrings.docstring_body docstring in
+            let loc = Docstrings.docstring_loc docstring in
+
+            (* odoc-parser adjusts for the initial [** *)
+            let adjustment = 3 (* String.length "(**" *) in
+
+            let location =
+              {
+                loc.loc_start with
+                pos_cnum = loc.loc_start.pos_cnum + adjustment;
+              }
+            in
+            loop (extract_code_block_info list ~location ~docstring:body)
+        | _ -> loop list
+      in
+      loop [] |> List.rev)
+
+(* Given code block metadata and the original file, this function splices the
+   contents of the code block from the original text and creates an Mdx
+   Block.t, or reports the error (e.g., from invalid tags) *)
+let make_block code_block file_contents =
   let handle_header = function
-    | Some Code_block.{ language_tag; labels } -> (
-        let header =
-          Block.Header.of_string (Odoc_parser.Loc.value language_tag)
+    | Some Code_block.{ language_tag; labels } ->
+        let open Util.Result.Infix in
+        let header = Block.Header.of_string language_tag in
+        let* labels =
+          match labels with
+          | None -> Ok []
+          | Some labels -> (
+              match Label.of_string (String.trim labels) with
+              | Ok labels -> Ok labels
+              | Error msgs ->
+                  Error (List.hd msgs) (* TODO: Report precise location *))
         in
-        match labels with
-        | None -> Ok (header, [])
-        | Some labels -> (
-            let labels = Odoc_parser.Loc.value labels |> String.trim in
-            match Label.of_string labels with
-            | Ok labels -> Ok (header, labels)
-            | Error msgs -> Error (List.hd msgs)
-            (* TODO: Report precise location *)))
+        let language_label = Label.Language_tag language_tag in
+        Ok (header, language_label :: labels)
     | None ->
         (* If not specified, blocks are run as ocaml blocks *)
         Ok (Some OCaml, [])
@@ -153,114 +143,59 @@ let make_block ~loc code_block =
   match handle_header code_block.Code_block.metadata with
   | Error _ as e -> e
   | Ok (header, labels) ->
-      let contents = String.split_on_char '\n' code_block.contents in
-      Block.mk ~loc ~section:None ~labels ~header ~contents ~legacy_labels:false
-        ~errors:[]
+      let slice (loc : Location.t) =
+        let start = loc.loc_start.pos_cnum in
+        let len = loc.loc_end.pos_cnum - start in
+        String.sub file_contents start len
+      in
+      let delim = code_block.delimiter in
+      let contents = slice code_block.content |> String.split_on_char '\n' in
+      Block.mk ~loc:code_block.code_block ~section:None ~labels ~header ~delim
+        ~contents ~legacy_labels:false ~errors:[]
 
-let _code_block_markup code_block =
-  let open Document in
-  let opening =
-    match code_block.Code_block.metadata with
-    | Some { language_tag; labels } ->
-        let labels =
-          match labels with
-          | Some s -> [ Text " "; Text (Odoc_parser.Loc.value s) ]
-          | None -> []
-        in
-        [ Text "{@"; Text (Odoc_parser.Loc.value language_tag) ]
-        @ labels @ [ Text "[" ]
-    | None -> [ Text "{[" ]
-  in
-  let hpad =
-    let has_several_lines = String.contains code_block.contents '\n' in
-    let column = code_block.location.start.column in
-    if not has_several_lines then ""
-    else Astring.String.v ~len:column (fun _ -> ' ')
-  in
-  (opening, [ Text (hpad ^ "}") ])
-
-let parse_general file_contents code_blocks =
-  (* Find the locations of the code blocks within [file_contents], then slice it up into
-     [Text] and [Block] parts by using the starts and ends of those blocks as
-     boundaries. *)
-  let cursor = ref { Odoc_parser.Loc.line = 1; column = 0 } in
-  let lines = String.split_on_char '\n' file_contents |> Array.of_list in
-  let tokens =
-    List.map
-      (fun ((code_block : Code_block.t), loc) ->
+(* Given the locations of the code blocks within [file_contents], then slice it up into
+   [Text] and [Block] parts by using the starts and ends of those blocks as
+   boundaries. *)
+let extract_blocks code_blocks file_contents =
+  let cursor, tokens =
+    List.fold_left
+      (fun (cursor, code_blocks) (code_block : Code_block.t) ->
         let pre_text =
           Document.Text
-            (slice lines ~start:!cursor ~end_:code_block.location.start)
+            (String.sub file_contents cursor
+               (code_block.code_block.loc_start.pos_cnum - cursor))
         in
         let block =
-          match make_block ~loc code_block with
+          match make_block code_block file_contents with
           | Ok block -> Document.Block block
-          | Error (`Msg msg) ->
-              failwith (Fmt.str "Error creating block: %s" msg)
+          | Error (`Msg msg) -> Fmt.failwith "Error creating block: %s" msg
         in
-        cursor := code_block.location.end_;
-        [ pre_text ] @ [ block ])
-      code_blocks
-    |> List.concat
+        (* append them in reverse order, since this is a fold_left *)
+        let code_blocks = block :: pre_text :: code_blocks in
+        (code_block.code_block.loc_end.pos_cnum, code_blocks))
+      (0, []) code_blocks
   in
-  let eof =
-    {
-      Odoc_parser.Loc.line = Array.length lines;
-      column = String.length lines.(Array.length lines - 1);
-    }
-  in
-  let eof_is_beyond_location (loc : Odoc_parser.Loc.point) =
-    eof.line > loc.line || (eof.line = loc.line && eof.column > loc.column)
-  in
-  if eof_is_beyond_location !cursor then
-    let remainder = slice lines ~start:!cursor ~end_:eof in
+  let tokens = List.rev tokens in
+  if cursor < String.length file_contents then
+    let remainder =
+      String.sub file_contents cursor (String.length file_contents - cursor)
+    in
     if not (String.equal remainder "") then tokens @ [ Text remainder ]
     else tokens
   else tokens
 
 let parse_mli file_contents =
-  let code_blocks = docstring_code_blocks file_contents in
-  parse_general file_contents code_blocks
+  try
+    let code_blocks = docstring_code_blocks file_contents in
+    Ok (extract_blocks code_blocks file_contents)
+  with exn -> Error [ `Msg (Printexc.to_string exn) ]
 
-let parse_mld ~fname ~text =
-  let rec find_lines start =
-    match String.index_from_opt text (start + 1) '\n' with
-    | Some i -> start :: find_lines i
-    | None -> [ start ]
-  in
-  let lines = find_lines 0 |> Array.of_list in
+let parse_mld ?(filename = "_none_") file_contents =
   let location =
-    { Lexing.pos_fname = fname; pos_lnum = 1; pos_bol = 0; pos_cnum = 0 }
+    Lexing.{ pos_bol = 0; pos_lnum = 1; pos_cnum = 0; pos_fname = filename }
   in
-  let p = Odoc_parser.parse_comment ~location ~text in
-  let blocks =
-    extract_code_blocks p
-    |> List.map (fun b ->
-           let loc_of (p : Odoc_parser.Loc.point) =
-             let pos_bol = lines.(p.line - 1) in
-             let pos_cnum = (* pos_bol +*) p.column in
-             {
-               Lexing.pos_bol;
-               pos_cnum;
-               pos_lnum = p.line - 1;
-               pos_fname = fname;
-             }
-           in
-           let location = b.Code_block.location in
-           let loc =
-             {
-               Location.loc_start = loc_of location.Odoc_parser.Loc.start;
-               loc_end = loc_of location.end_;
-               loc_ghost = false;
-             }
-           in
-           (b, loc))
+  let code_blocks =
+    extract_code_block_info [] ~location ~docstring:file_contents |> List.rev
   in
-  parse_general text blocks
-
-let parse_mli file_contents =
-  try Result.Ok (parse_mli file_contents)
-  with exn -> Util.Result.errorf "%s" (Printexc.to_string exn)
-
-let parse_mld ~fname ~text =
-  Result.Ok (parse_mld ~fname ~text)
+  let result = extract_blocks code_blocks file_contents in
+  Ok result

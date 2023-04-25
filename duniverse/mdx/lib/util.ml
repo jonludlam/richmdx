@@ -14,8 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-open Result
-
 module Result = struct
   module Infix = struct
     let ( >>= ) r f = match r with Ok x -> f x | Error _ as e -> e
@@ -24,12 +22,18 @@ module Result = struct
     let ( >>! ) r f =
       match r with
       | Ok x -> f x
-      | Error (`Msg e) ->
-          Printf.eprintf "[mdx] Fatal error: %s\n" e;
+      | Error l ->
+          List.iter
+            (fun (`Msg m) -> Printf.eprintf "[mdx] Fatal error: %s\n" m)
+            l;
           1
+
+    let ( let* ) = ( >>= )
+    let ( let+ ) = ( >>| )
   end
 
   let errorf fmt = Format.ksprintf (fun s -> Error (`Msg s)) fmt
+  let to_error_list = function Ok x -> Ok x | Error err -> Error [ err ]
 
   module List = struct
     open Infix
@@ -37,13 +41,28 @@ module Result = struct
     let fold ~f ~init l =
       let rec go acc = function
         | [] -> Ok acc
-        | hd :: tl -> f acc hd >>= fun acc -> go acc tl
+        | hd :: tl ->
+            let* acc = f acc hd in
+            go acc tl
       in
       go init l
 
     let map ~f l =
-      fold ~f:(fun acc elm -> f elm >>| fun elm' -> elm' :: acc) ~init:[] l
+      fold
+        ~f:(fun acc elm ->
+          let+ elm' = f elm in
+          elm' :: acc)
+        ~init:[] l
       >>| List.rev
+
+    let split l =
+      let rec split_rec oks errors l =
+        match l with
+        | [] -> (List.rev oks, List.rev errors)
+        | Ok x :: tl -> split_rec (x :: oks) errors tl
+        | Error x :: tl -> split_rec oks (x :: errors) tl
+      in
+      split_rec [] [] l
   end
 end
 
@@ -85,6 +104,7 @@ module String = struct
     | hd :: tl -> aux hd tl
 
   let english_conjonction words = english_concat ~last_sep:"and" words
+  let all_blank = Astring.String.for_all Astring.Char.Ascii.is_white
 end
 
 module List = struct
@@ -94,6 +114,19 @@ module List = struct
       | h :: t -> ( match f h with Some x -> Some x | None -> aux t)
     in
     aux l
+
+  let partition_until f xs =
+    let rec loop = function
+      | [] -> ([], [])
+      | x :: xs -> (
+          match f x with
+          | true ->
+              let trueish, falseish = loop xs in
+              (x :: trueish, falseish)
+          | false -> ([], x :: xs))
+    in
+    let trueish, falseish = loop xs in
+    (List.rev trueish, falseish)
 end
 
 module Array = struct
@@ -103,6 +136,22 @@ module Array = struct
 end
 
 module Process = struct
+  let rec waitpid_non_intr pid =
+    try Unix.waitpid [] pid
+    with Unix.Unix_error (Unix.EINTR, _, _) -> waitpid_non_intr pid
+
   let wait ~pid =
-    match snd (Unix.waitpid [] pid) with WEXITED n -> n | _ -> 255
+    match snd (waitpid_non_intr pid) with WEXITED n -> n | _ -> 255
+end
+
+module Int = struct
+  let min a b = if a < b then a else b
+end
+
+module Seq = struct
+  (* [Seq.append] was added in 4.11, implement it for older versions *)
+  let rec append seq1 seq2 () =
+    match seq1 () with
+    | Seq.Nil -> seq2 ()
+    | Seq.Cons (x, next) -> Seq.Cons (x, append next seq2)
 end

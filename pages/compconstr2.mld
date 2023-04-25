@@ -56,14 +56,14 @@ val gcd : int * int -> int = <fun>
 ]}
 
 {@ocaml[
-# let rec gcd_cps cnt (m, n) =
+# let rec gcd_cps (m, n) k =
     if m=n
-    then cnt m
+    then k m
     else if m<n
-        then gcd_cps cnt (m, n-m)
-        else gcd_cps cnt (m-n, n);;
-val gcd_cps : (int -> 'a) -> int * int -> 'a = <fun>
-# List.map (gcd_cps (fun x -> x)) [(24, 638); (17, 289); (31, 1889)];;
+        then gcd_cps (m, n-m) k
+        else gcd_cps (m-n, n) k;; 
+val gcd_cps : int * int -> (int -> 'a) -> 'a = <fun>
+# List.map (fun p -> gcd_cps p (fun x -> x)) [(24, 638); (17, 289); (31, 1889)];;
 - : int list = [2; 17; 1]
 ]}
 
@@ -143,13 +143,16 @@ type ('a, 'b) env =
 Let's rewrite our original functions using this now:
 
 {@ocaml[
-let update_dfc : ('a, 'b) env * ('a * 'b) -> ('a, 'b) env =
-    fun (env, (x,v)) -> Update ((x,v), env)
-let rec mupdate_dfc (env, bl) =
+# let update_dfc : ('a, 'b) env * ('a * 'b) -> ('a, 'b) env =
+    fun (env, (x,v)) -> Update ((x,v), env);;
+val update_dfc : ('a, 'b) env * ('a * 'b) -> ('a, 'b) env = <fun>
+# let rec mupdate_dfc (env, bl) =
     match bl with
     | [] -> env
-    | (x,v) :: rest -> mupdate_dfc (update_dfc (env,(x,v)), rest)
-let env_empty_dfc : ('a, 'b) env = Empty
+    | (x,v) :: rest -> mupdate_dfc (update_dfc (env,(x,v)), rest);;
+val mupdate_dfc : ('a, 'b) env * ('a * 'b) list -> ('a, 'b) env = <fun>
+# let env_empty_dfc : ('a, 'b) env = Empty;;
+val env_empty_dfc : ('a, 'b) env = Empty
 ]}
 
 and create a single [apply] function that executes the body of
@@ -240,53 +243,7 @@ val fib : int -> int = <fun>
 val map_test_1 : int list = [1; 1; 2; 3; 5; 8; 13; 21; 34; 55; 89]
 ]}
 
-OK let's give this a go:
-
-{@ocaml[
-# let rec map_cps : (('b list -> 'c) * ('a -> 'b) * 'a list) -> 'c = fun (cnt, f, l) ->
-    match l with
-    | [] -> cnt []
-    | a :: rest ->
-        let a' = f a in
-        map_cps ((fun vs -> cnt (a' :: vs)), f, rest);;
-val map_cps : ('b list -> 'c) * ('a -> 'b) * 'a list -> 'c = <fun>
-]}
-
-{@ocaml[
-# map_cps((fun x -> x), fib, [0; 1; 2; 3; 4; 5; 6; 7; 8; 9; 10]);;
-- : int list = [1; 1; 2; 3; 5; 8; 13; 21; 34; 55; 89]
-]}
-
-This is getting there, but not quite sufficient. For a program in CPS style, every call is
-in tail position. Our call to [f] isn't, but that's because [f] itself isn't in
-CPS style.
-
-{@ocaml[
-# let rec map_cps2 : (('b list -> 'c) * ('a * ('b -> 'c) -> 'c) * 'a list) -> 'c = fun (cnt, f, l) ->
-    match l with
-    | [] -> cnt []
-    | a :: rest ->
-        f (a, fun a' ->
-            map_cps2 ((fun vs -> cnt (a' :: vs)), f, rest));;
-val map_cps2 : ('b list -> 'c) * ('a * ('b -> 'c) -> 'c) * 'a list -> 'c =
-  <fun>
-]}
-
-Now we need a fib_cps that allows us to use this:
-
-{@ocaml[
-# let rec fib_cps (m,cnt) =
-    if m = 0 
-    then cnt 1 
-    else if m = 1 
-         then cnt 1 
-         else fib_cps ((m - 1), (fun x -> fib_cps ((m - 2),(fun y -> cnt (x+y)))));;
-val fib_cps : int * (int -> 'a) -> 'a = <fun>
-# map_cps2 ((fun x -> x), fib_cps, [0; 1; 2; 3; 4; 5; 6; 7; 8; 9; 10]);;
-- : int list = [1; 1; 2; 3; 5; 8; 13; 21; 34; 55; 89]
-]}
-
-How about doing it how the lectures did it?
+Let's do this the lectures did it.
 
 First rewrite with [let]s on the function calls:
 
@@ -305,18 +262,35 @@ Now, let's add the [k] parameter and convert those [let] sites to function
 calls:
 
 {@ocaml[
-# let rec map2 (f, l) k = 
+# let rec map2 (f, l) k =
     match l with 
-    | [] -> [] 
+    | [] -> k []
     | a :: rest ->
         f a (fun a' ->
-        map2 (f, rest) (fun rest' ->
-        k (a' :: rest')));; 
-val map2 :
-  ('a -> ('b -> 'c list) -> 'c list) * 'a list -> ('b list -> 'd) -> 'c list =
+          map2 (f, rest) (fun rest' ->
+            k (a' :: rest')));; 
+val map2 : ('a -> ('b -> 'c) -> 'c) * 'a list -> ('b list -> 'c) -> 'c =
   <fun>
 ]}
 
-Now, this has clearly changed the type of [f] from [('a -> 'b)] to ['a -> ('b -> 'c list) -> 'c list)]
+Now, this has clearly changed the type of [f] from [('a -> 'b)] to ['a -> ('b -> 'c) -> 'c)]
 so our old [fib] function won't work - obviously, since it's not tail recursive!
 
+Let's have a new [fib_cps] then:
+
+{@ocaml[
+# let rec fib_cps m cnt =
+    if m = 0 
+    then cnt 1 
+    else if m = 1 
+         then cnt 1 
+         else fib_cps (m - 1) (fun x -> fib_cps (m - 2) (fun y -> cnt (x+y)));;
+val fib_cps : int -> (int -> 'a) -> 'a = <fun>
+]}
+
+And let's put it together:
+
+{@ocaml[
+# map2 (fib_cps, [1;2;3;4;5;6;7;8;9;10]) (fun x -> x);;
+- : int list = [1; 2; 3; 5; 8; 13; 21; 34; 55; 89]
+]}

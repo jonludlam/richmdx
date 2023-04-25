@@ -1,6 +1,9 @@
 open Result
 module Error = Odoc_model.Error
 
+module Lookup_def = Lookup_def
+module Source_info = Source_info
+
 let read_string parent_definition filename text =
   let location =
     let pos =
@@ -29,6 +32,11 @@ let wrong_version file =
 let error_msg file (msg : string) =
   Error.raise_exception (Error.filename_only "%s" msg file)
 
+type make_root =
+  module_name:string ->
+  digest:Digest.t ->
+  (Odoc_model.Root.t, [ `Msg of string ]) result
+
 exception Corrupted
 
 exception Not_an_implementation
@@ -36,6 +44,22 @@ exception Not_an_implementation
 exception Not_an_interface
 
 exception Make_root_error of string
+
+(** [cmt_info.cmt_annots = Implementation _] *)
+let read_cmt_infos' cmt_info =
+  match Lookup_def.of_cmt cmt_info with
+  | None -> None
+  | Some shape ->
+      let jmp_infos = Local_jmp.of_cmt cmt_info in
+      Some (shape, jmp_infos)
+
+let read_cmt_infos ~filename () =
+  match Cmt_format.read_cmt filename with
+  | exception Cmi_format.Error _ -> raise Corrupted
+  | cmt_info -> (
+      match cmt_info.cmt_annots with
+      | Implementation _ -> read_cmt_infos' cmt_info
+      | _ -> raise Not_an_implementation)
 
 let make_compilation_unit ~make_root ~imports ~interface ?sourcefile ~name ~id
     ?canonical content =
@@ -74,6 +98,7 @@ let make_compilation_unit ~make_root ~imports ~interface ?sourcefile ~name ~id
     expansion = None;
     linked = false;
     canonical;
+    source_info = None;
   }
 
 let compilation_unit_of_sig ~make_root ~imports ~interface ?sourcefile ~name ~id
@@ -139,12 +164,14 @@ let read_cmt ~make_root ~parent ~filename () =
               items
           in
           let content = Odoc_model.Lang.Compilation_unit.Pack items in
-          make_compilation_unit ~make_root ~imports ~interface ~sourcefile ~name
-            ~id content
+          ( make_compilation_unit ~make_root ~imports ~interface ~sourcefile
+              ~name ~id content,
+            None )
       | Implementation impl ->
           let id, sg, canonical = Cmt.read_implementation parent name impl in
-          compilation_unit_of_sig ~make_root ~imports ~interface ~sourcefile
-            ~name ~id ?canonical sg
+          ( compilation_unit_of_sig ~make_root ~imports ~interface ~sourcefile
+              ~name ~id ?canonical sg,
+            read_cmt_infos' cmt_info )
       | _ -> raise Not_an_implementation)
 
 let read_cmi ~make_root ~parent ~filename () =
@@ -171,6 +198,8 @@ let wrap_errors ~filename f =
       | Not_an_interface -> not_an_interface filename
       | Make_root_error m -> error_msg filename m)
 
+let read_cmt_infos ~filename = wrap_errors ~filename (read_cmt_infos ~filename)
+
 let read_cmti ~make_root ~parent ~filename =
   wrap_errors ~filename (read_cmti ~make_root ~parent ~filename)
 
@@ -179,3 +208,5 @@ let read_cmt ~make_root ~parent ~filename =
 
 let read_cmi ~make_root ~parent ~filename =
   wrap_errors ~filename (read_cmi ~make_root ~parent ~filename)
+
+let read_location = Doc_attr.read_location

@@ -14,19 +14,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-open Result
-
 module Result : sig
   module Infix : sig
     val ( >>= ) :
       ('a, 'err) result -> ('a -> ('b, 'err) result) -> ('b, 'err) result
 
     val ( >>| ) : ('a, 'err) result -> ('a -> 'b) -> ('b, 'err) result
-    val ( >>! ) : ('a, [ `Msg of string ]) result -> ('a -> int) -> int
+    val ( >>! ) : ('a, [ `Msg of string ] list) result -> ('a -> int) -> int
+
+    val ( let* ) :
+      ('a, 'err) result -> ('a -> ('b, 'err) result) -> ('b, 'err) result
+
+    val ( let+ ) : ('a, 'err) result -> ('a -> 'b) -> ('b, 'err) result
   end
 
   val errorf :
     ('a, unit, string, ('b, [> `Msg of string ]) result) format4 -> 'a
+
+  val to_error_list : ('a, 'err) result -> ('a, 'err list) result
 
   module List : sig
     val fold :
@@ -36,6 +41,7 @@ module Result : sig
       ('acc, 'err) result
 
     val map : f:('a -> ('b, 'err) result) -> 'a list -> ('b list, 'err) result
+    val split : ('a, 'err) result list -> 'a list * 'err list
   end
 end
 
@@ -50,12 +56,16 @@ end
 
 module List : sig
   val find_map : ('a -> 'b option) -> 'a list -> 'b option
+  val partition_until : ('a -> bool) -> 'a list -> 'a list * 'a list
 end
 
 module String : sig
   val english_conjonction : string list -> string
   (** [english_conjonction ["a"; "b"; "c"]] returns ["a, b and c"].
       @raise Invalid_argument when called on the empty list. *)
+
+  val all_blank : string -> bool
+  (** [all_blank s] is true if every character of s is a whitespace *)
 end
 
 module Sexp : sig
@@ -75,4 +85,12 @@ module Process : sig
   (** Wait for the given process and return an exit code.
       Exit code is the same as the child process if it exits normally, or 255
       otherwise. *)
+end
+
+module Int : sig
+  val min : int -> int -> int
+end
+
+module Seq : sig
+  val append : 'a Seq.t -> 'a Seq.t -> 'a Seq.t
 end

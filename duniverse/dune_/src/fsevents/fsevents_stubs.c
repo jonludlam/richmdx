@@ -7,10 +7,11 @@
 #include <caml/threads.h>
 
 #if defined(__APPLE__)
-#include <Availability.h>
+#include <AvailabilityMacros.h>
 #endif
 
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300
+#if defined(__APPLE__) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 100700
+
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreServices/CoreServices.h>
 
@@ -34,6 +35,20 @@ void dune_fsevents_runloop_finalize(value v_runloop) {
 
 static struct custom_operations dune_fsevents_runloop_ops = {
     "dune.fsevents.runloop",    dune_fsevents_runloop_finalize,
+    custom_compare_default,     custom_hash_default,
+    custom_serialize_default,   custom_deserialize_default,
+    custom_compare_ext_default, custom_fixed_length_default};
+
+#define Fsevents_val(v) (*(dune_fsevents_t **)Data_custom_val(v))
+
+static void dune_fsevents_t_finalize(value v_t) {
+  dune_fsevents_t *t = Fsevents_val(v_t);
+  caml_remove_global_root(&t->v_callback);
+  caml_stat_free(t);
+}
+
+static struct custom_operations dune_fsevents_t_ops = {
+    "dune.fsevents.fsevents_t", dune_fsevents_t_finalize,
     custom_compare_default,     custom_hash_default,
     custom_serialize_default,   custom_deserialize_default,
     custom_compare_ext_default, custom_fixed_length_default};
@@ -89,9 +104,14 @@ static void dune_fsevents_callback(const FSEventStreamRef streamRef,
     if (!(interesting_flags & flags)) {
       continue;
     }
+    CFStringRef cf_path;
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300
     CFDictionaryRef details = CFArrayGetValueAtIndex(eventPaths, i);
-    CFStringRef cf_path =
+    cf_path =
         CFDictionaryGetValue(details, kFSEventStreamEventExtendedDataPathKey);
+#else
+    cf_path = (CFStringRef)CFArrayGetValueAtIndex(eventPaths, i);
+#endif
     CFIndex len = CFStringGetLength(cf_path);
     CFIndex byte_len;
     CFIndex res =
@@ -152,7 +172,9 @@ CAMLprim value dune_fsevents_create(value v_paths, value v_latency,
 
   const FSEventStreamEventFlags flags =
       kFSEventStreamCreateFlagNoDefer |
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300
       kFSEventStreamCreateFlagUseExtendedData |
+#endif
       kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents;
 
   dune_fsevents_t *t;
@@ -169,13 +191,16 @@ CAMLprim value dune_fsevents_create(value v_paths, value v_latency,
   t->v_callback = v_callback;
   t->stream = stream;
 
-  CAMLreturn(caml_copy_nativeint((intnat)t));
+  value v_ret = caml_alloc_custom(
+      &dune_fsevents_t_ops, sizeof(dune_fsevents_t *), 0, 1);
+  Fsevents_val(v_ret) = t;
+  CAMLreturn(v_ret);
 }
 
 CAMLprim value dune_fsevents_set_exclusion_paths(value v_t, value v_paths) {
   CAMLparam2(v_t, v_paths);
   CAMLlocal1(path);
-  dune_fsevents_t *t = (dune_fsevents_t *)Nativeint_val(v_t);
+  dune_fsevents_t *t = Fsevents_val(v_t);
   CFMutableArrayRef paths = paths_of_list(v_paths);
 
   bool ret = FSEventStreamSetExclusionPaths(t->stream, paths);
@@ -189,7 +214,7 @@ CAMLprim value dune_fsevents_set_exclusion_paths(value v_t, value v_paths) {
 
 CAMLprim value dune_fsevents_start(value v_t, value v_runloop) {
   CAMLparam2(v_t, v_runloop);
-  dune_fsevents_t *t = (dune_fsevents_t *)Nativeint_val(v_t);
+  dune_fsevents_t *t = Fsevents_val(v_t);
   dune_runloop *runloop = Runloop_val(v_runloop);
   t->runloop = runloop;
   FSEventStreamScheduleWithRunLoop(t->stream, runloop->runloop,
@@ -204,19 +229,17 @@ CAMLprim value dune_fsevents_start(value v_t, value v_runloop) {
 
 CAMLprim value dune_fsevents_stop(value v_t) {
   CAMLparam1(v_t);
-  dune_fsevents_t *t = (dune_fsevents_t *)Nativeint_val(v_t);
+  dune_fsevents_t *t = Fsevents_val(v_t);
   FSEventStreamStop(t->stream);
   FSEventStreamInvalidate(t->stream);
   FSEventStreamRelease(t->stream);
-  caml_remove_global_root(&t->v_callback);
-  caml_stat_free(t);
   CAMLreturn(Val_unit);
 }
 
 CAMLprim value dune_fsevents_runloop_get(value v_t) {
   CAMLparam1(v_t);
   CAMLlocal2(v_some, v_runloop);
-  dune_fsevents_t *t = (dune_fsevents_t *)Nativeint_val(v_t);
+  dune_fsevents_t *t = Fsevents_val(v_t);
   if (t->runloop == NULL) {
     CAMLreturn(Val_int(0));
   } else {
@@ -229,7 +252,7 @@ CAMLprim value dune_fsevents_runloop_get(value v_t) {
 
 CAMLprim value dune_fsevents_flush_async(value v_t) {
   CAMLparam1(v_t);
-  dune_fsevents_t *t = (dune_fsevents_t *)Nativeint_val(v_t);
+  dune_fsevents_t *t = Fsevents_val(v_t);
   CAMLlocal1(v_event);
   uint64_t id = FSEventStreamFlushAsync(t->stream);
   v_event = caml_copy_int64(id);
@@ -238,7 +261,7 @@ CAMLprim value dune_fsevents_flush_async(value v_t) {
 
 CAMLprim value dune_fsevents_flush_sync(value v_t) {
   CAMLparam1(v_t);
-  dune_fsevents_t *t = (dune_fsevents_t *)Nativeint_val(v_t);
+  dune_fsevents_t *t = Fsevents_val(v_t);
   caml_release_runtime_system();
   FSEventStreamFlushSync(t->stream);
   caml_acquire_runtime_system();
@@ -266,29 +289,16 @@ CAMLprim value dune_fsevents_action(value v_flags) {
   CAMLlocal1(v_action);
 
   uint32_t flags = Int32_val(v_flags) & action_mask;
-  // XXX slow
-  int count = 0;
-  while (flags) {
-    count += (flags & 1);
-    flags >>= 1;
-  }
-
-  flags = Int32_val(v_flags);
-  if (count >= 2 || flags & kFSEventStreamEventFlagItemRenamed) {
-    // we don't bother tracking renamed acurately for now. macos makes it
-    // tricky by not telling is which path is created and which one is deleted.
-    // it is possible to reverse engineer this from the chain of inodes in the
-    // events, but it's also error prone as inodes can be reused. so for now, we
-    // avoid this is and treat renamed as unknown
+  if (flags & kFSEventStreamEventFlagItemCreated) {
     v_action = Val_int(0);
-  } else if (flags & kFSEventStreamEventFlagItemCreated) {
-    v_action = Val_int(1);
   } else if (flags & kFSEventStreamEventFlagItemRemoved) {
-    v_action = Val_int(2);
+    v_action = Val_int(1);
   } else if (flags & kFSEventStreamEventFlagItemModified) {
+    v_action = Val_int(2);
+  } else if (flags & kFSEventStreamEventFlagItemRenamed) {
     v_action = Val_int(3);
   } else {
-    caml_failwith("fsevents: unexpected event action");
+    v_action = Val_int(4);
   }
 
   CAMLreturn(v_action);
@@ -316,7 +326,9 @@ static const FSEventStreamEventFlags all_flags[] = {
     kFSEventStreamEventFlagOwnEvent,
     kFSEventStreamEventFlagItemIsHardlink,
     kFSEventStreamEventFlagItemIsLastHardlink,
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300
     kFSEventStreamEventFlagItemCloned,
+#endif
 };
 
 CAMLprim value dune_fsevents_raw(value v_flags) {
@@ -339,7 +351,11 @@ CAMLprim value dune_fsevents_available(value unit) {
 #else
 
 static char *unavailable_message =
-    "fsevents is only available on macos >= 10.13";
+#if defined(__APPLE__)
+    "upgrade your macos sdk to enable watch mode";
+#else
+    "fsevents is only available on macos";
+#endif
 
 CAMLprim value dune_fsevents_stop(value v_t) {
   caml_failwith(unavailable_message);

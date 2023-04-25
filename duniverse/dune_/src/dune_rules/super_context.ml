@@ -7,21 +7,30 @@ let default_context_flags (ctx : Context.t) ~project =
   in
   let c, cxx =
     match Dune_project.use_standard_c_and_cxx_flags project with
-    | None | Some false ->
-      (Action_builder.return cflags, Action_builder.return cxxflags)
+    | None | Some false -> Action_builder.(return cflags, return cxxflags)
     | Some true ->
-      let c = cflags @ Ocaml_config.ocamlc_cppflags ctx.ocaml_config in
-      let cxx =
-        let open Action_builder.O in
-        let+ db_flags = Cxx_flags.get_flags ~for_:Compile ctx in
-        db_flags @ cxxflags
+      let open Action_builder.O in
+      let c =
+        let+ cc = Cxx_flags.ccomp_type ctx in
+        let fdiagnostics_color = Cxx_flags.fdiagnostics_color cc in
+        cflags
+        @ Ocaml_config.ocamlc_cppflags ctx.ocaml_config
+        @ fdiagnostics_color
       in
-      (Action_builder.return c, cxx)
+      let cxx =
+        let+ cc = Cxx_flags.ccomp_type ctx
+        and+ db_flags = Cxx_flags.get_flags ~for_:Compile ctx in
+        let fdiagnostics_color = Cxx_flags.fdiagnostics_color cc in
+        db_flags @ cxxflags @ fdiagnostics_color
+      in
+      (c, cxx)
   in
   Foreign_language.Dict.make ~c ~cxx
 
 module Env_tree : sig
   type t
+
+  val force_bin_artifacts : t -> unit Memo.t
 
   val context : t -> Context.t
 
@@ -53,6 +62,9 @@ end = struct
     ; bin_artifacts : Artifacts.Bin.t
     ; get_node : Path.Build.t -> Env_node.t Memo.t
     }
+
+  let force_bin_artifacts { bin_artifacts; _ } =
+    Artifacts.Bin.force bin_artifacts
 
   let context t = t.context
 
@@ -291,16 +303,17 @@ let js_of_ocaml_flags t ~dir (spec : Js_of_ocaml.Flags.Spec.t) =
   Js_of_ocaml.Flags.make ~spec ~default:js_of_ocaml.flags
     ~eval:(Expander.expand_and_eval_set expander)
 
+let default_foreign_flags t ~dir ~language =
+  Env_tree.get_node t ~dir >>| Env_node.foreign_flags
+  >>| (fun dict -> Foreign_language.Dict.get dict language)
+  |> Action_builder.of_memo_join
+
 let foreign_flags t ~dir ~expander ~flags ~language =
   let ccg = Context.cc_g (Env_tree.context t) in
-  let default =
-    Env_tree.get_node t ~dir >>| Env_node.foreign_flags >>| fun dict ->
-    Foreign_language.Dict.get dict language
-  in
+  let default = default_foreign_flags t ~dir ~language in
   let open Action_builder.O in
   let name = Foreign_language.proper_name language in
   let flags =
-    let* default = Action_builder.of_memo default in
     let+ l = Expander.expand_and_eval_set expander flags ~standard:default in
     l @ ccg
   in
@@ -323,6 +336,8 @@ let menhir_flags t ~dir ~expander ~flags =
     (Expander.expand_and_eval_set expander flags ~standard:default)
 
 let local_binaries t ~dir = Env_tree.get_node t ~dir >>= Env_node.local_binaries
+
+let env_node = Env_tree.get_node
 
 let odoc t ~dir = Env_tree.get_node t ~dir >>= Env_node.odoc
 
@@ -492,7 +507,7 @@ let create ~(context : Context.t) ~host ~packages ~stanzas =
     ~bin_artifacts:artifacts.bin ~context_env
 
 let all =
-  Memo.lazy_ (fun () ->
+  Memo.lazy_ ~name:"Super_context.all" (fun () ->
       let open Memo.O in
       let* packages = Only_packages.get ()
       and* contexts = Context.DB.all () in
@@ -527,6 +542,11 @@ let find name =
   let open Memo.O in
   let+ all = Memo.Lazy.force all in
   Context_name.Map.find all name
+
+let all_init_deferred () =
+  let* all = Memo.Lazy.force all in
+  Context_name.Map.values all
+  |> Memo.parallel_iter ~f:Env_tree.force_bin_artifacts
 
 module As_memo_key = struct
   type nonrec t = t

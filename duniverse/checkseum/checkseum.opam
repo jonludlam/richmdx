@@ -1,4 +1,4 @@
-version: "0.3.4"
+version: "0.5.1"
 opam-version: "2.0"
 name:         "checkseum"
 maintainer:   [ "Romain Calascibetta <romain.calascibetta@gmail.com>" ]
@@ -19,7 +19,6 @@ top of optint to get the best representation of an int32. """
 
 build: [
   [ "dune" "build" "-p" name "-j" jobs ]
-  [ "ocaml" "./install/install.ml" ]
   [ "dune" "runtest" "-p" name "-j" jobs ] {with-test}
 ]
 
@@ -31,9 +30,8 @@ install: [
 depends: [
   "ocaml"         {>= "4.07.0"}
   "dune"          {>= "2.6.0"}
-  "conf-pkg-config" {build}
   "dune-configurator"
-  "optint"        {>= "0.2.0"}
+  "optint"        {>= "0.3.0"}
   "alcotest"      {with-test}
   "bos"           {with-test}
   "astring"       {with-test}
@@ -43,11 +41,7 @@ depends: [
   "ocamlfind"     {with-test}
 ]
 
-depopts: [
-  "ocaml-freestanding"
-]
-
 conflicts: [
   "mirage-xen" {< "6.0.0"}
-  "ocaml-freestanding" {< "0.4.3"}
+  "ocaml-freestanding"
 ]

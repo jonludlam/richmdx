@@ -7,6 +7,9 @@ module Opt = struct
   let map f = function Some x -> Some (f x) | None -> None
 end
 
+let locations env id locs =
+  match locs with Some _ as locs -> locs | None -> Env.lookup_def id env
+
 (** Equivalent to {!Comment.synopsis}. *)
 let synopsis_from_comment (docs : Component.CComment.docs) =
   match docs with
@@ -31,7 +34,9 @@ let synopsis_of_module env (m : Component.Module.t) =
         | Signature sg -> Ok sg
       in
       (* If there is no doc, look at the expansion. *)
-      match Tools.expansion_of_module env m >>= handle_expansion with
+      match
+        Tools.expansion_of_module env m >>= fun exp -> handle_expansion exp
+      with
       | Ok sg -> synopsis_from_comment (Component.extract_signature_doc sg)
       | Error _ -> None)
 
@@ -65,6 +70,15 @@ let check_ambiguous_label ~loc env
         | [] -> ()
         | xs -> ambiguous_label_warning label_name xs)
     | Ok _ | Error `Not_found -> ()
+
+let expansion_needed self target =
+  let self = (self :> Paths.Path.Resolved.t) in
+  let hidden_alias = Paths.Path.Resolved.is_hidden self
+  and self_canonical =
+    let i = Paths.Path.Resolved.identifier self in
+    i = (target :> Paths.Identifier.t)
+  in
+  self_canonical || hidden_alias
 
 exception Loop
 
@@ -198,7 +212,9 @@ let rec comment_inline_element :
             match (content, x) with
             | [], `Identifier ({ iv = #Id.Label.t_pv; _ } as i) -> (
                 match Env.lookup_by_id Env.s_label i env with
-                | Some (`Label (_, lbl)) -> lbl.Component.Label.text
+                | Some (`Label (_, lbl)) ->
+                    Odoc_model.Comment.link_content_of_inline_elements
+                      lbl.Component.Label.text
                 | None -> [])
             | content, _ -> content
           in
@@ -262,8 +278,18 @@ and comment_tag env parent ~loc:_ (x : Comment.tag) =
       `Deprecated (comment_nestable_block_element_list env parent content)
   | `Param (name, content) ->
       `Param (name, comment_nestable_block_element_list env parent content)
-  | `Raise (name, content) ->
-      `Raise (name, comment_nestable_block_element_list env parent content)
+  | `Raise ((`Reference (r, reference_content) as orig), content) -> (
+      match Ref_tools.resolve_reference env r |> Error.raise_warnings with
+      | Ok x ->
+          `Raise
+            ( `Reference (`Resolved x, reference_content),
+              comment_nestable_block_element_list env parent content )
+      | Error e ->
+          Errors.report ~what:(`Reference r) ~tools_error:(`Reference e)
+            `Resolve;
+          `Raise (orig, comment_nestable_block_element_list env parent content))
+  | `Raise ((`Code_span _ as orig), content) ->
+      `Raise (orig, comment_nestable_block_element_list env parent content)
   | `Return content ->
       `Return (comment_nestable_block_element_list env parent content)
   | `See (kind, target, content) ->
@@ -278,9 +304,14 @@ and comment_block_element env parent ~loc (x : Comment.block_element) =
   | #Comment.nestable_block_element as x ->
       (comment_nestable_block_element env parent ~loc x
         :> Comment.block_element)
-  | `Heading h as x ->
+  | `Heading (attrs, label, elems) ->
+      let cie = comment_inline_element env in
+      let elems =
+        List.rev_map (fun ele -> with_location cie ele) elems |> List.rev
+      in
+      let h = (attrs, label, elems) in
       check_ambiguous_label ~loc env h;
-      x
+      `Heading h
   | `Tag t -> `Tag (comment_tag env parent ~loc t)
 
 and with_location :
@@ -309,7 +340,9 @@ let rec unit env t =
   let open Compilation_unit in
   let content =
     match t.content with
-    | Module sg -> Module (signature env (t.id :> Id.Signature.t) sg)
+    | Module sg ->
+        let sg = signature env (t.id :> Id.Signature.t) sg in
+        Module sg
     | Pack _ as p -> p
   in
   { t with content; linked = true }
@@ -318,6 +351,7 @@ and value_ env parent t =
   let open Value in
   {
     t with
+    locs = locations env (t.id :> Id.t) t.locs;
     doc = comment_docs env parent t.doc;
     type_ = type_expression env parent [] t.type_;
   }
@@ -326,8 +360,9 @@ and exception_ env parent e =
   let open Exception in
   let res = Opt.map (type_expression env parent []) e.res in
   let args = type_decl_constructor_argument env parent e.args in
+  let locs = locations env e.id e.locs in
   let doc = comment_docs env parent e.doc in
-  { e with res; args; doc }
+  { e with locs; res; args; doc }
 
 and extension env parent t =
   let open Extension in
@@ -335,6 +370,7 @@ and extension env parent t =
     let open Constructor in
     {
       c with
+      locs = locations env c.id c.locs;
       args = type_decl_constructor_argument env parent c.args;
       res = Opt.map (type_expression env parent []) c.res;
       doc = comment_docs env parent c.doc;
@@ -355,7 +391,12 @@ and class_type_expr env parent =
 and class_type env parent c =
   let open ClassType in
   let doc = comment_docs env parent c.doc in
-  { c with expr = class_type_expr env parent c.expr; doc }
+  {
+    c with
+    locs = locations env c.id c.locs;
+    expr = class_type_expr env parent c.expr;
+    doc;
+  }
 
 and class_signature env parent c =
   let open ClassSignature in
@@ -404,7 +445,9 @@ and class_ env parent c =
         Arrow (lbl, type_expression env parent [] expr, map_decl decl)
   in
   let doc = comment_docs env parent c.doc in
-  { c with type_ = map_decl c.type_; doc }
+  let locs = locations env c.id c.locs in
+  let type_ = map_decl c.type_ in
+  { c with locs; type_; doc }
 
 and module_substitution env parent m =
   let open ModuleSubstitution in
@@ -475,15 +518,7 @@ and module_ : Env.t -> Module.t -> Module.t =
     let type_ =
       match type_ with
       | Alias (`Resolved p, _) ->
-          let hidden_alias =
-            Paths.Path.Resolved.Module.is_hidden ~weak_canonical_test:false p
-          in
-          let self_canonical =
-            let i = Paths.Path.Resolved.(identifier (p :> t)) in
-            i = (m.id :> Paths.Identifier.t)
-          in
-          let expansion_needed = self_canonical || hidden_alias in
-          if expansion_needed then
+          if expansion_needed p m.id then
             let cp = Component.Of_Lang.(resolved_module_path (empty ()) p) in
             match
               Tools.expansion_of_module_path ~strengthen:false env
@@ -497,7 +532,9 @@ and module_ : Env.t -> Module.t -> Module.t =
           else type_
       | Alias _ | ModuleType _ -> type_
     in
-    { m with doc = comment_docs env sg_id m.doc; type_ }
+    let locs = (locations env (m.id :> Id.t)) m.locs in
+    let doc = comment_docs env sg_id m.doc in
+    { m with locs; doc; type_ }
 
 and module_decl : Env.t -> Id.Signature.t -> Module.decl -> Module.decl =
  fun env id decl ->
@@ -530,7 +567,8 @@ and module_type : Env.t -> ModuleType.t -> ModuleType.t =
        | _ -> false
      in*)
   let doc = comment_docs env sg_id m.doc in
-  { m with expr = expr'; doc }
+  let locs = (locations env m.id) m.locs in
+  { m with locs; expr = expr'; doc }
 
 and module_type_substitution :
     Env.t -> ModuleTypeSubstitution.t -> ModuleTypeSubstitution.t =
@@ -725,16 +763,7 @@ and module_type_expr :
     | Some e, _ ->
         Some (simple_expansion env (id :> Paths.Identifier.Signature.t) e)
     | None, Some (`Resolved p_path) ->
-        let hidden_alias =
-          Paths.Path.Resolved.ModuleType.is_hidden ~weak_canonical_test:false
-            p_path
-        in
-        let self_canonical =
-          let i = Paths.Path.Resolved.(identifier (p_path :> t)) in
-          (id :> Id.t) = i
-        in
-        let expansion_needed = self_canonical || hidden_alias in
-        if expansion_needed then
+        if expansion_needed p_path id then
           let cp =
             Component.Of_Lang.(resolved_module_type_path (empty ()) p_path)
           in
@@ -805,6 +834,7 @@ and type_decl : Env.t -> Id.Signature.t -> TypeDecl.t -> TypeDecl.t =
   let open TypeDecl in
   let equation = type_decl_equation env parent t.equation in
   let doc = comment_docs env parent t.doc in
+  let locs = locations env t.id t.locs in
   let hidden_path =
     match equation.Equation.manifest with
     | Some (Constr (`Resolved path, params))
@@ -817,7 +847,7 @@ and type_decl : Env.t -> Id.Signature.t -> TypeDecl.t -> TypeDecl.t =
   let representation =
     Opt.map (type_decl_representation env parent) t.representation
   in
-  let default = { t with equation; doc; representation } in
+  let default = { t with locs; equation; doc; representation } in
   match hidden_path with
   | Some (p, params) -> (
       let p' = Component.Of_Lang.(resolved_type_path (empty ()) p) in
@@ -994,23 +1024,29 @@ and type_expression : Env.t -> Id.Signature.t -> _ -> _ =
 
 let link ~filename x y =
   Lookup_failures.catch_failures ~filename (fun () ->
-      if y.Lang.Compilation_unit.linked then y else unit x y)
+      if y.Lang.Compilation_unit.linked || y.hidden then y else unit x y)
 
 let page env page =
-  let children =
-    List.fold_right
-      (fun child res ->
-        match Ref_tools.resolve_reference env child |> Error.raise_warnings with
-        | Ok r -> `Resolved r :: res
-        | Error _ ->
-            Errors.report ~what:(`Child child) `Resolve;
-            res)
-      page.Odoc_model.Lang.Page.children []
+  let () =
+    List.iter
+      (fun child ->
+        let check_resolves ~what f name =
+          match f name env with
+          | Some _ -> ()
+          | None -> Errors.report ~what `Lookup
+        in
+        match child with
+        | Page.Source_tree_child _ -> ()
+        | Page.Page_child page ->
+            check_resolves ~what:(`Child_page page) Env.lookup_page page
+        | Page.Module_child mod_ ->
+            check_resolves ~what:(`Child_module mod_) Env.lookup_root_module
+              mod_)
+      page.Lang.Page.children
   in
   {
     page with
     Page.content = comment_docs env page.Page.name page.content;
-    children;
     linked = true;
   }
 

@@ -13,6 +13,15 @@ let%bench_fun "bind" =
      in
      loop n)
 
+let%bench_fun "create ivar and immediately read" =
+ fun () ->
+  let ivar = Fiber.Ivar.create () in
+  Fiber.run
+    ~iter:(fun () ->
+      let open Nonempty_list in
+      [ Fiber.Fill (ivar, ()) ])
+    (Fiber.Ivar.read ivar)
+
 let%bench_fun "ivar" =
  fun () ->
   let ivar = ref (Fiber.Ivar.create ()) in
@@ -123,6 +132,30 @@ let%bench_fun "Fiber.parallel_map" =
       ~iter:(fun () -> assert false)
       (Fiber.parallel_map l ~f:Fiber.return)
     |> ignore
+
+let pool_run tasks =
+  Fiber.run
+    ~iter:(fun () -> assert false)
+    (let pool = Fiber.Pool.create () in
+     Fiber.fork_and_join_unit
+       (fun () -> Fiber.Pool.run pool)
+       (fun () ->
+         let* () =
+           Fiber.parallel_iter tasks ~f:(fun (_ : int) ->
+               Fiber.Pool.task pool ~f:Fiber.return)
+         in
+         Fiber.Pool.stop pool))
+  |> ignore
+
+(* some pools are used to run many fibers *)
+let%bench_fun "Fiber.Pool.run - big" =
+  let l = List.init 1000 ~f:Fun.id in
+  fun () -> pool_run l
+
+(* other pools are one-off transients that are created and discarded *)
+let%bench_fun "Fiber.Pool.run - small" =
+  let l = List.init 2 ~f:Fun.id in
+  fun () -> pool_run l
 
 module M = Fiber.Make_map_traversals (Int.Map)
 

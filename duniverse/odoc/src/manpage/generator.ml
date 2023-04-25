@@ -238,9 +238,7 @@ let strip l =
               { h with desc = Styled (sty, List.rev @@ loop [] content) }
             in
             loop (h :: acc) t
-        | Link (_, content)
-        | InternalLink (Resolved (_, content))
-        | InternalLink (Unresolved content) ->
+        | Link (_, content) | InternalLink { content; _ } ->
             let acc = loop acc content in
             loop acc t
         | Source code ->
@@ -298,7 +296,7 @@ and inline (l : Inline.t) =
       | Styled (sty, content) -> style sty (inline content) ++ inline rest
       | Link (href, content) ->
           env "UR" "UE" href (inline @@ strip content) ++ inline rest
-      | InternalLink (Resolved (_, content) | Unresolved content) ->
+      | InternalLink { content; _ } ->
           font "CI" (inline @@ strip content) ++ inline rest
       | Source content -> source_code content ++ inline rest
       | Math s -> math s ++ inline rest
@@ -357,7 +355,7 @@ let next_heading, reset_heading =
   and reset () = heading_stack := [] in
   (next, reset)
 
-let heading ~nested { Heading.label = _; level; title } =
+let heading ~nested { Heading.label = _; level; title; source_anchor = _ } =
   let prefix =
     if level = 0 then noop
     else if level <= 3 then str "%s " (next_heading level)
@@ -431,7 +429,7 @@ let rec documentedSrc (l : DocumentedSrc.t) =
           let l = list ~sep:break (List.map f lines) in
           indent 2 (break ++ l) ++ break_if_nonempty rest ++ continue rest)
 
-and subpage { title = _; header = _; items; url = _ } =
+and subpage { preamble = _; items; url = _; _ } =
   let content = items in
   let surround body =
     if content = [] then sp else indent 2 (break ++ body) ++ break
@@ -450,7 +448,7 @@ and item ~nested (l : Item.t list) =
       | Heading h ->
           let h = heading ~nested h in
           vspace ++ h ++ vspace ++ item ~nested rest
-      | Declaration { attr = _; anchor = _; content; doc } ->
+      | Declaration { attr = _; anchor = _; source_anchor = _; content; doc } ->
           let decl = documentedSrc content in
           let doc =
             match doc with
@@ -459,8 +457,13 @@ and item ~nested (l : Item.t list) =
           in
           decl ++ doc ++ continue rest
       | Include
-          { attr = _; anchor = _; content = { summary; status; content }; doc }
-        ->
+          {
+            attr = _;
+            anchor = _;
+            source_anchor = _;
+            content = { summary; status; content };
+            doc;
+          } ->
           let d =
             if inline_subpage status then item ~nested content
             else
@@ -476,24 +479,30 @@ let on_sub subp =
   | `Page p -> if Link.should_inline p.Subpage.content.url then Some 1 else None
   | `Include incl -> if inline_subpage incl.Include.status then Some 0 else None
 
-let page { Page.title; header; items = i; url } =
+let page p =
   reset_heading ();
-  let header = Shift.compute ~on_sub header in
-  let i = Shift.compute ~on_sub i in
-  macro "TH" {|%s 3 "" "Odoc" "OCaml Library"|} title
+  let header =
+    Doctree.PageTitle.render_title p @ Shift.compute ~on_sub p.preamble
+  in
+  let i = Shift.compute ~on_sub p.items in
+  macro "TH" {|%s 3 "" "Odoc" "OCaml Library"|} p.url.name
   ++ macro "SH" "Name"
-  ++ str "%s" (String.concat "." @@ Link.for_printing url)
+  ++ str "%s" (String.concat "." @@ Link.for_printing p.url)
   ++ macro "SH" "Synopsis" ++ vspace ++ item ~nested:false header
   ++ macro "SH" "Documentation" ++ vspace ++ macro "nf" ""
   ++ item ~nested:false i
 
 let rec subpage subp =
   let p = subp.Subpage.content in
-  if Link.should_inline p.url then [] else [ render p ]
+  if Link.should_inline p.url then [] else [ render_page p ]
 
-and render (p : Page.t) =
-  let p = Doctree.Labels.disambiguate_page p
+and render_page (p : Page.t) =
+  let p = Doctree.Labels.disambiguate_page ~enter_subpages:true p
   and children = Utils.flatmap ~f:subpage @@ Subpages.compute p in
   let content ppf = Format.fprintf ppf "%a@." Roff.pp (page p) in
   let filename = Link.as_filename p.url in
   { Renderer.filename; content; children }
+
+let render = function
+  | Document.Page page -> [ render_page page ]
+  | Source_page _ -> []

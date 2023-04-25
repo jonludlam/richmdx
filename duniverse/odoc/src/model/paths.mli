@@ -14,6 +14,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+module Ocaml_ident = Ident
+module Ocaml_env = Env
+
 (** Identifiers for definitions *)
 
 module Identifier : sig
@@ -31,6 +34,20 @@ module Identifier : sig
     val compare : t -> t -> int
   end
 
+  module RootModule : sig
+    type t = Paths_types.Identifier.root_module
+
+    type t_pv = Paths_types.Identifier.root_module_pv
+
+    val equal : t -> t -> bool
+
+    val hash : t -> int
+
+    val compare : t -> t -> int
+
+    val name : t -> string
+  end
+
   module Signature : sig
     type t = Paths_types.Identifier.signature
 
@@ -41,6 +58,8 @@ module Identifier : sig
     val hash : t -> int
 
     val compare : t -> t -> int
+
+    val root : [< t_pv ] id -> RootModule.t
   end
 
   module ClassSignature : sig
@@ -91,18 +110,6 @@ module Identifier : sig
     val compare : t -> t -> int
   end
 
-  module RootModule : sig
-    type t = Paths_types.Identifier.root_module
-
-    type t_pv = Paths_types.Identifier.root_module_pv
-
-    val equal : t -> t -> bool
-
-    val hash : t -> int
-
-    val compare : t -> t -> int
-  end
-
   module Module : sig
     type t = Paths_types.Identifier.module_
 
@@ -113,6 +120,8 @@ module Identifier : sig
     val hash : t -> int
 
     val compare : t -> t -> int
+
+    val root : t -> RootModule.t
   end
 
   module FunctorParameter : sig
@@ -307,6 +316,24 @@ module Identifier : sig
     val compare : t -> t -> int
   end
 
+  module SourceDir : sig
+    type t = Paths_types.Identifier.source_dir
+    type t_pv = Paths_types.Identifier.source_dir_pv
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val compare : t -> t -> int
+    val name : t -> string
+  end
+
+  module SourcePage : sig
+    type t = Paths_types.Identifier.source_page
+    type t_pv = Paths_types.Identifier.source_page_pv
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val compare : t -> t -> int
+    val name : t -> string
+  end
+
   module OdocId : sig
     type t = Paths_types.Identifier.odoc_id
 
@@ -330,6 +357,8 @@ module Identifier : sig
       val hash : t -> int
 
       val compare : t -> t -> int
+
+      val root : t -> RootModule.t
     end
 
     module ModuleType : sig
@@ -377,6 +406,8 @@ module Identifier : sig
 
   val name : [< t_pv ] id -> string
 
+  val root : [< t_pv ] id -> RootModule.t_pv id option
+
   val compare : t -> t -> int
 
   val equal : ([< t_pv ] id as 'a) -> 'a -> bool
@@ -417,6 +448,8 @@ module Identifier : sig
     val leaf_page :
       ContainerPage.t option * PageName.t ->
       [> `LeafPage of ContainerPage.t option * PageName.t ] id
+
+    val source_page : ContainerPage.t * string list -> SourcePage.t
 
     val root :
       ContainerPage.t option * ModuleName.t ->
@@ -491,6 +524,8 @@ module rec Path : sig
       val is_hidden : t -> weak_canonical_test:bool -> bool
 
       val identifier : t -> Identifier.Path.Module.t
+
+      val root : t -> string option
     end
 
     module ModuleType : sig
@@ -522,10 +557,14 @@ module rec Path : sig
     type t = Paths_types.Resolved_path.any
 
     val identifier : t -> Identifier.t
+
+    val is_hidden : t -> bool
   end
 
   module Module : sig
     type t = Paths_types.Path.module_
+
+    val root : t -> string option
   end
 
   module ModuleType : sig

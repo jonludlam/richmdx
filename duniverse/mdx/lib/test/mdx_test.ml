@@ -15,7 +15,6 @@
  *)
 
 open Mdx
-open Result
 open Astring
 open Mdx.Util.Result.Infix
 
@@ -25,23 +24,28 @@ module Log = (val Logs.src_log src : Logs.LOG)
 
 let ( / ) = Filename.concat
 
-(* From jbuilder's stdlib *)
+(* From stdune *)
 let ansi_color_strip str =
   let len = String.length str in
   let buf = Buffer.create len in
-  let rec loop i =
-    if i = len then Buffer.contents buf
+  let rec loop start i =
+    if i = len then (
+      if i - start > 0 then Buffer.add_substring buf str start (i - start);
+      Buffer.contents buf)
     else
-      match str.[i] with
-      | '\027' -> skip (i + 1)
-      | c ->
-          Buffer.add_char buf c;
-          loop (i + 1)
+      match String.unsafe_get str i with
+      | '\027' ->
+          if i - start > 0 then Buffer.add_substring buf str start (i - start);
+          skip (i + 1)
+      | _ -> loop start (i + 1)
   and skip i =
     if i = len then Buffer.contents buf
-    else match str.[i] with 'm' -> loop (i + 1) | _ -> skip (i + 1)
+    else
+      match String.unsafe_get str i with
+      | 'm' -> loop (i + 1) (i + 1)
+      | _ -> skip (i + 1)
   in
-  loop 0
+  loop 0 0
 
 let output_from_line s =
   `Output (String.drop ~rev:true ~sat:Char.Ascii.is_blank s)
@@ -94,30 +98,61 @@ let root_dir ?root ?block () =
 let resolve_root file dir root =
   match root with None -> dir / file | Some r -> r / dir / file
 
-let run_cram_tests ?syntax t ?root ppf temp_file pad tests =
+let pp_output ppf = function
+  | `Output line ->
+      let line = ansi_color_strip line in
+      Output.pp ~pad:0 ppf (`Output line)
+  | otherwise -> Output.pp ~pad:0 ppf otherwise
+
+let pp_outputs ppf outputs =
+  Fmt.string ppf "\n";
+  Fmt.list ~sep:(Fmt.any "\n") pp_output ppf outputs
+
+let pad_output ~pad_blank hpad outputs =
+  let string_pad = String.v ~len:hpad (fun _ -> ' ') in
+  List.map
+    (function
+      | `Ellipsis -> `Output (Fmt.str "%s..." string_pad)
+      | `Output s -> (
+          match (Util.String.all_blank s, pad_blank) with
+          | true, false -> `Output s
+          | true, true | false, _ -> `Output (Fmt.str "%s%s" string_pad s)))
+    outputs
+
+let run_cram_tests ?syntax t ?root ppf temp_file
+    (Cram.{ hpad; tests; end_pad; start_pad } as cram_tests) =
   Block.pp_header ?syntax ppf t;
-  let pad = match syntax with Some Cram -> pad + 2 | _ -> pad in
-  List.iter
-    (fun test ->
-      let root = root_dir ?root ~block:t () in
-      let unset_variables = Block.unset_variables t in
-      let n = run_test ?root unset_variables temp_file test in
-      let lines = Mdx.Util.File.read_lines temp_file in
-      let output =
-        let output = List.map output_from_line lines in
-        if Output.equal output test.output then test.output
-        else Output.merge output test.output
-      in
-      Cram.pp_command ~pad ppf test;
-      List.iter
-        (function
-          | `Ellipsis -> Output.pp ~pad ppf `Ellipsis
-          | `Output line ->
-              let line = ansi_color_strip line in
-              Output.pp ?syntax ~pad ppf (`Output line))
-        output;
-      Cram.pp_exit_code ~pad ppf n)
-    tests;
+  Log.debug (fun l ->
+      l "Cram tests to print: %a" Cram.dump_cram_tests cram_tests);
+
+  (* How many new lines does the test block start with? *)
+  Cram.pp_vertical_pad ppf start_pad;
+
+  let pp_test ppf (test : Cram.t) =
+    let root = root_dir ?root ~block:t () in
+    let unset_variables = Block.unset_variables t in
+    let n = run_test ?root unset_variables temp_file test in
+    let lines = Mdx.Util.File.read_lines temp_file in
+    let output_expected = test.output in
+    let output_received = List.map output_from_line lines in
+    let output_equal = Output.equal output_received output_expected in
+    let output =
+      match output_equal with
+      | true -> output_expected
+      | false -> Output.merge output_received output_expected
+    in
+    let output = pad_output ~pad_blank:true hpad output in
+    Cram.pp_command ~pad:hpad ppf test;
+    (match output with [] -> () | output -> pp_outputs ppf output);
+    Cram.pp_exit_code ~pad:hpad ppf n
+  in
+
+  let pp_tests = Fmt.list ~sep:(Fmt.any "\n") pp_test in
+  pp_tests ppf tests;
+
+  (* if there is end-padding, apply it *)
+  Option.iter (Fmt.pf ppf "\n%s") end_pad;
+
   Block.pp_footer ?syntax ppf t
 
 let eval_test ?block ?root c cmd =
@@ -146,25 +181,44 @@ let split_lines lines =
   in
   List.fold_left aux [] (List.rev lines)
 
-let eval_ocaml ~block ?syntax ?root c ppf cmd errors =
-  let update ~errors ~output = function
-    | { Block.value = OCaml v; _ } as b ->
-        { b with value = OCaml { v with errors }; output }
-    (* [eval_ocaml] only called on OCaml blocks *)
-    | _ -> assert false
-  in
+let rec remove_padding ?(front = true) = function
+  | [] -> []
+  | [ x; end_pad ] when Util.String.all_blank end_pad -> [ x ]
+  | front_pad :: xs when Util.String.all_blank front_pad && front ->
+      remove_padding ~front:false xs
+  | x :: xs ->
+      let xs = remove_padding ~front xs in
+      x :: xs
+
+let update_ocaml ~errors ~output = function
+  | { Block.value = OCaml v; _ } as b ->
+      { b with value = OCaml { v with errors; output } }
+  (* [eval_ocaml] only called on OCaml blocks *)
+  | _ -> assert false
+
+let rec error_padding = function
+  | [] -> []
+  | [ `Output padding ] when Util.String.all_blank padding -> []
+  | x :: xs ->
+      let xs = error_padding xs in
+      x :: xs
+
+let eval_ocaml ~(block : Block.t) ?syntax ?root c ppf errors =
+  let cmd = block.contents |> remove_padding in
   let contains_warnings = String.is_infix ~affix:"Warning" in
-  let mime_entries, lines =
+  let mime_entries, error_lines =
     match eval_test ?root ~block c cmd with
     | Ok (mime_entries, lines) -> mime_entries, List.filter contains_warnings lines
     | Error lines -> [], lines
   in
   let errors =
-    match lines with
+    match error_lines with
     | [] -> []
     | lines ->
         let lines = split_lines lines in
         let output = List.map output_from_line lines in
+        let errors = error_padding errors in
+        let output = error_padding output in
         if Output.equal output errors then errors
         else
           List.map
@@ -173,35 +227,49 @@ let eval_ocaml ~block ?syntax ?root c ppf cmd errors =
               | `Output x -> `Output (ansi_color_strip x))
             (Output.merge output errors)
   in
-  let odoc_output = List.map (fun x -> Mime_printer.to_odoc x) mime_entries |> String.concat ~sep:"\n" in
-  Block.pp ?syntax ppf (update ~errors block ~output:(match odoc_output with | "" -> None| s -> Some ("\n"^s)))
+  let output =
+    match mime_entries with
+    | [] ->
+      None
+    | _ ->
+      Some (List.map (fun x -> Mime_printer.to_odoc x) mime_entries |> String.concat ~sep:"\n")
+  in
+  let updated_block = update_ocaml ~errors ~output block in
+  Block.pp ?syntax ppf updated_block
 
 let lines = function Ok x -> x | Error x -> [], x
 
-let run_toplevel_tests ?syntax ?root c ppf tests t =
-  Block.pp_header ?syntax ppf t;
-  let mime_entries = List.map
-    (fun (test : Toplevel.t) ->
-      let (mime_output, lines) = lines (eval_test ?root ~block:t c test.command) in
-      let lines = split_lines lines in
-      let output =
-        let output = List.map output_from_line lines in
-        if Output.equal output test.output then test.output else output
-      in
-      let pad = test.hpad in
-      Toplevel.pp_command ppf test;
-      List.iter
-        (function
-          | `Ellipsis -> Output.pp ~pad ppf `Ellipsis
-          | `Output line ->
-              let line = ansi_color_strip line in
-              Output.pp ~pad ppf (`Output line))
-        output;
-      mime_output)
-    tests in
-  let odoc_output = List.map (fun x -> Mime_printer.to_odoc x) (List.concat mime_entries) |> String.concat ~sep:"\n" in
-  Block.pp_footer ?syntax ppf {t with output = (match odoc_output with | "" -> None | s -> Some ("\n"^s))}
-  
+let run_toplevel_tests ?syntax ?root c ppf Toplevel.{ tests; end_pad } block =
+  Block.pp_header ?syntax ppf block;
+  let outputs = ref [] in
+  let pp_test ppf (test : Toplevel.t) =
+    let (mime_output, lines) = eval_test ?root ~block c test.command |> lines in
+    let lines = split_lines lines in
+    let output_received = List.map output_from_line lines in
+    let output_expected = test.output in
+    let output_equal = Output.equal output_received output_expected in
+    let output = if output_equal then output_expected else output_received in
+    let output = pad_output ~pad_blank:false test.hpad output in
+    Toplevel.pp_command ppf test;
+    outputs := !outputs @ mime_output;
+    match output with [] -> () | output -> pp_outputs ppf output
+  in
+  let pp_tests = Fmt.list ~sep:(Fmt.any "\n") pp_test in
+  pp_tests ppf tests;
+  Option.iter (Fmt.pf ppf "\n%s") end_pad;
+  let output =
+    if List.length !outputs = 0 then None else Some (List.map (fun x -> Mime_printer.to_odoc x) !outputs |> String.concat ~sep:"\n") in
+  let block =
+    match block.value with
+    | OCaml _ -> update_ocaml ~errors:[] ~output block
+    | Toplevel v ->
+      if List.length !outputs > 0 then begin
+        Format.eprintf "Updating outputs...\n%!";
+        {block with value = Toplevel {v with Block.top_output = output }}
+      end else block
+    | _ -> block in
+  Block.pp_footer ?syntax ppf block
+
 type file = { first : Mdx.Part.file; current : Mdx.Part.file }
 
 let files : (string, file) Hashtbl.t = Hashtbl.create 8
@@ -245,7 +313,9 @@ let write_parts ~force_output file parts =
 
 let update_block_content ?syntax ppf t content =
   Block.pp_header ?syntax ppf t;
+  Fmt.string ppf "\n";
   Output.pp ppf (`Output content);
+  Fmt.string ppf "\n";
   Block.pp_footer ?syntax ppf t
 
 let update_file_or_block ?syntax ?root ppf md_file ml_file block part =
@@ -256,23 +326,22 @@ let update_file_or_block ?syntax ?root ppf md_file ml_file block part =
 
 exception Test_block_failure of Block.t * string
 
-let with_non_det ~command ~output ~det non_deterministic = function
+let with_non_det ~on_skip_execution ~on_keep_old_output ~on_evaluation
+    non_deterministic = function
   (* the command is non-deterministic so skip everything *)
-  | Some Label.Nd_command when not non_deterministic -> command ()
+  | Some Label.Nd_command when not non_deterministic -> on_skip_execution ()
   (* its output is non-deterministic; run it but keep the old output. *)
-  | Some Label.Nd_output when not non_deterministic -> output ()
-  | _ -> det ()
+  | Some Label.Nd_output when not non_deterministic -> on_keep_old_output ()
+  | _ -> on_evaluation ()
 
 let preludes ~prelude ~prelude_str =
-  let aux to_lines p =
-    let env, file = Mdx.Prelude.env_and_file p in
-    (env, to_lines file)
-  in
+  let parse_str (env, content) = (env, [ content ]) in
+  let parse (env, file) = (env, Mdx.Util.File.read_lines file) in
   match (prelude, prelude_str) with
   | [], [] -> []
-  | [], fs -> List.map (aux (fun x -> [ x ])) fs
-  | fs, [] -> List.map (aux Mdx.Util.File.read_lines) fs
-  | _ -> Fmt.failwith "only one of --prelude or --prelude-str shoud be used"
+  | [], fs -> List.map parse_str fs
+  | fs, [] -> List.map parse fs
+  | _ -> Fmt.failwith "only one of --prelude or --prelude-str should be used"
 
 let run_exn ~non_deterministic ~silent_eval ~record_backtrace ~syntax ~silent
     ~verbose_findlib ~prelude ~prelude_str ~file ~section ~root ~force_output
@@ -299,37 +368,29 @@ let run_exn ~non_deterministic ~silent_eval ~record_backtrace ~syntax ~silent
       | Include { file_included; file_kind = Fk_other _ } ->
           let new_content = read_part file_included None in
           update_block_content ?syntax ppf t new_content
-      | OCaml { non_det; env; errors } ->
+      | OCaml { non_det; env; errors; header = _; output = _ } ->
           let det () =
             assert (syntax <> Some Cram);
             Mdx_top.in_env env (fun () ->
-                eval_ocaml ~block:t ?syntax ?root c ppf t.contents errors)
+                eval_ocaml ~block:t ?syntax ?root c ppf errors)
           in
-          with_non_det non_deterministic non_det ~command:print_block
-            ~output:det ~det
+          with_non_det non_deterministic non_det ~on_skip_execution:print_block
+            ~on_keep_old_output:det ~on_evaluation:det
       | Cram { language = _; non_det } ->
-          let pad, tests =
-            Cram.of_lines
-              ~syntax:(Option.value ~default:Normal syntax)
-              ~loc:t.loc t.contents
-          in
-          with_non_det non_deterministic non_det ~command:print_block
-            ~output:(fun () ->
+          let tests = Cram.of_lines t.contents in
+          with_non_det non_deterministic non_det ~on_skip_execution:print_block
+            ~on_keep_old_output:(fun () ->
               print_block ();
               let unset_variables = Block.unset_variables t in
               List.iter
                 (fun t -> ignore (run_test ?root unset_variables temp_file t))
-                tests)
-            ~det:(fun () ->
-              run_cram_tests ?syntax t ?root ppf temp_file pad tests)
-      | Toplevel { non_det; env } ->
-          let phrases =
-            let syntax = Util.Option.value syntax ~default:Normal in
-            Toplevel.of_lines ~syntax ~loc:t.loc t.contents
-          in
-          let phrases = Deprecated.Missing_double_semicolon.fix phrases in
-          with_non_det non_deterministic non_det ~command:print_block
-            ~output:(fun () ->
+                tests.Cram.tests)
+            ~on_evaluation:(fun () ->
+              run_cram_tests ?syntax t ?root ppf temp_file tests)
+      | Toplevel { non_det; env; _ } ->
+          let phrases = Toplevel.of_lines ~loc:t.loc t.contents in
+          with_non_det non_deterministic non_det ~on_skip_execution:print_block
+            ~on_keep_old_output:(fun () ->
               assert (syntax <> Some Cram);
               print_block ();
               List.iter
@@ -343,8 +404,8 @@ let run_exn ~non_deterministic ~silent_eval ~record_backtrace ~syntax ~silent
                       let output = List.map (fun l -> `Output l) e in
                       if Output.equal phrase.output output then ()
                       else err_eval ~cmd:phrase.command e)
-                phrases)
-            ~det:(fun () ->
+                phrases.tests)
+            ~on_evaluation:(fun () ->
               assert (syntax <> Some Cram);
               Mdx_top.in_env env (fun () ->
                   run_toplevel_tests ?syntax ?root c ppf phrases t))
@@ -371,7 +432,6 @@ let run_exn ~non_deterministic ~silent_eval ~record_backtrace ~syntax ~silent
             try test_block ~ppf ~temp_file t
             with Failure msg -> raise (Test_block_failure (t, msg))))
       items;
-    Deprecated.Missing_double_semicolon.report ~filename:file;
     Format.pp_print_flush ppf ();
     Buffer.contents buf
   in

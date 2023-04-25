@@ -1,8 +1,7 @@
 open Stdune
 open Dune_cache_storage.Layout
 open Fiber.O
-module Store_result = Dune_cache_storage.Store_result
-module Restore_result = Dune_cache_storage.Restore_result
+open Import
 
 module Store_artifacts_result = struct
   type t =
@@ -60,7 +59,10 @@ end
    hard links on [$file] will be allowed, triggering the [EMLINK] code path. *)
 let link_even_if_there_are_too_many_links_already ~src ~dst =
   try Path.link src dst
-  with Unix.Unix_error (Unix.EMLINK, _, _) ->
+  with
+  | Unix.Unix_error (Unix.EMLINK, _, _)
+  | Unix.Unix_error (Unix.EUNKNOWNERR -1142, _, _) (* Needed for OCaml < 5.1 *)
+  ->
     Temp.with_temp_file ~dir:temp_dir ~prefix:"dune" ~suffix:"copy" ~f:(function
       | Error e -> raise e
       | Ok temp_file ->
@@ -91,7 +93,7 @@ module Artifacts = struct
      the result is [Error] with the corresponding exception. Otherwise, the
      result is [Ok ()]. *)
   let store_targets_to ~temp_dir ~targets ~mode : unit Or_exn.t =
-    Result.List.fold_left targets ~init:() ~f:(fun () { Target.path; _ } ->
+    Result.List.iter targets ~f:(fun { Target.path; _ } ->
         let path_in_build_dir = Path.build path in
         let path_in_temp_dir =
           Path.relative temp_dir (Path.basename path_in_build_dir)
@@ -199,16 +201,8 @@ module Artifacts = struct
         let result = store_metadata ~mode ~rule_digest ~metadata:[] artifacts in
         Store_artifacts_result.of_store_result ~artifacts result)
 
-  let rec fold_list_result l ~init ~f =
-    match l with
-    | [] -> Ok init
-    | x :: xs -> (
-      match f init x with
-      | Ok acc -> fold_list_result xs ~init:acc ~f
-      | Error e -> Error e)
-
   let create_all_or_nothing ~create ~destroy list =
-    fold_list_result list ~init:[] ~f:(fun acc x ->
+    Result.List.fold_left list ~init:[] ~f:(fun acc x ->
         match create x with
         | Error e ->
           List.iter acc ~f:destroy;

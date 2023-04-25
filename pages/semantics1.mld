@@ -1,0 +1,156 @@
+{0 Semantics Supervision 1}
+
+{1 Reference}
+
+{2 Syntax}
+
+l1 syntax
+
+- Booleans b ∈ 𝔹 = \{ true, false \}
+- Integers n ∈ ℤ = \{ ... -1, 0, 1, ... \}
+- Locations l ∈ 𝕃 = \{ l, l_0, l_1, l_2, ...\}
+- Operations op ::= + | >=
+- Expressions
+{@code[
+e ::= n | b | e1 op e2 | if e1 then e2 else e3 |
+      l := e | !l |
+      skip | e1; e2 |
+      while e1 do e2
+]}
+
+
+{1 Exercise 1}
+
+Write a program to compute the factorial of the integer initially in location
+l1. Take care to ensure your program really is an expression in l1.
+
+{v
+(* l2 is the loop counter, from 1 up to l1 - 1 *)
+(* l3 is the result *)
+l2 := 1;
+l3 := 1;
+while (!l1 >= !l2) do
+  (* want to do l3 := !l3 * !l2, so make a copy of l3, and add it !l2 - 1 times  *)
+  l4 := !l3;
+  l5 := 2;
+  while (!l2 >= !l5) do
+    l3 := !l3 + !l4
+  l2 := !l2 + 1
+v}
+
+{@ocaml skip[
+let factorial =
+  Seq (
+    Assign ("l2",Integer 1),
+    Seq (
+      Assign ("l3",Integer 1),
+      While ( Op ( Deref "l1", GTEQ, Deref "l2"),
+        Seq (
+          Assign ("l4", Deref "l3"),
+          Seq (Assign ("l5", Integer 2),
+            Seq (
+              While ( Op (Deref "l2", GTEQ, Deref "l5"),
+                Seq (
+                  Assign ("l3", Op (Deref "l3", Plus, Deref "l4")),
+                  Assign ("l5", Op (Deref "l5", Plus, Integer 1))
+                )),
+              Assign ("l2", Op (Deref "l2", Plus, Integer 1))
+            )
+          )
+        )
+      )
+    )
+  )
+]}
+
+{1 Exercise 2}
+
+Give full derivations of all the reduction steps of
+[<(l0 := 7); (l1 := (!l0 + 2)), {l0 → 0, l1 → 0}>]
+
+{v
+--------------------------------------------------------------------------------------------------- assign1
+<(l0 := 7); (l1 := (!l0 + 2)), {l0 -> 0, l1 -> 0}> -> <skip; (l1 := (!l0 + 2)), {l0 -> 7, l1 -> 0}>
+
+
+--------------------------------------------------------------------------------------- seq1  
+<skip; (l1 := (!l0 + 2)), {l0 -> 7, l1 -> 0}> -> <(l1 := (!l0 + 2)), {l0 -> 7, l1 -> 0}>
+  
+
+    ---------------------------------------------------- deref 
+    <!l0, {l0 -> 7, l1 -> 0}> -> <7, {l0 -> 7, l1 -> 0}>
+  ---------------------------------------------------------------- op1
+  <(!l0 + 2), {l0 -> 7, l1 -> 0}> -> <(7 + 2), {l0 -> 7, l1 -> 0}>
+------------------------------------------------------------------------------ assign2
+(l1 := (!l0 + 2)), {l0 -> 7, l1 -> 0}> -> <(l1 := (7 + 2)), {l0 -> 7, l1 -> 0}>
+
+
+--------------------------------------------------------------------- op+
+(l1 := (7 + 2)), {l0 -> 7, l1 -> 0}> -> <l1 := 9, {l0 -> 7, l1 -> 0}>
+
+
+----------------------------------------------------------- assign1
+<l1 := 9, {l0 -> 7, l1 -> 0}> -> <skip, {l0 -> 7, l1 -> 9}>
+v}
+
+{1 Exercise 3}
+
+Give the first 4 reduction steps of this:
+
+[l2 := 0; while !l1 ≥ 1 do (l2 := !l2 + !l1 ; l1 := !l1 + −1)]
+
+
+{v
+----------------------------------------------------------------------------------------------------------------------------------------------------------------- assign1
+<l2 := 0; while !l1 ≥ 1 do (l2 := !l2 + !l1 ; l1 := !l1 + −1), {l1 → 3, l2 → 0}> -> <skip; while !l1 ≥ 1 do (l2 := !l2 + !l1 ; l1 := !l1 + −1), {l1 → 3, l2 → 0}>
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------- seq1
+ <skip; while !l1 ≥ 1 do (l2 := !l2 + !l1 ; l1 := !l1 + −1), {l1 → 3, l2 → 0}> -> <while !l1 ≥ 1 do (l2 := !l2 + !l1 ; l1 := !l1 + −1), {l1 → 3, l2 → 0}>
+
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ while 
+<while !l1 ≥ 1 do (l2 := !l2 + !l1 ; l1 := !l1 + −1), {l1 → 3, l2 → 0}> -> <if !l1 ≥ 1 then (l2 := !l2 + !l1 ; l1 := !l1 + −1); while !l1 ≥ 1 do (l2 := !l2 + !l1 ; l1 := !l1 + −1) else skip,  {l1 → 3, l2 → 0} >
+
+     ------------------------------------------------ deref
+     <!l1, {l1 → 3, l2 → 0}> -> <3, {l1 → 3, l2 → 0}> 
+   -------------------------------------------------------- op1
+   <!l1 ≥ 1, {l1 → 3, l2 → 0}> -> <3 ≥ 1, {l1 → 3, l2 → 0}> 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- if3
+<if !l1 ≥ 1 then (l2 := !l2 + !l1 ; l1 := !l1 + −1); while !l1 ≥ 1 do (l2 := !l2 + !l1 ; l1 := !l1 + −1) else skip,  {l1 → 3, l2 → 0} > -> <if 3 ≥ 1 then (l2 := !l2 + !l1 ; l1 := !l1 + −1); while !l1 ≥ 1 do (l2 := !l2 + !l1 ; l1 := !l1 + −1) else skip,  {l1 → 3, l2 → 0} >
+
+v}
+
+{1 Exercise 4}
+
+{@ocaml skip[
+| Op (e1,opr,e2) ->
+     (match (e1,opr,e2) with
+     | (Integer n1, Plus, Integer n2) -> Some(Integer (n1+n2), s)   (*op + *)
+     | (Integer n1, GTEQ, Integer n2) -> Some(Boolean (n1 >= n2), s)(*op >=*)
+     | (e1,opr,e2) -> (
+         if (is_value e2) then
+           (match reduce (e1,s) with
+           | Some (e1',s') -> Some (Op(e1',opr,e2),s')     (* (op2b) *)
+           | None -> None )
+         else
+           (match reduce (e2,s) with
+           | Some (e2',s') -> Some(Op(e1,opr,e2'),s')      (* (op1) *)
+           | None -> None ) ) )
+]}
+
+Test cases would be something that has a side-effect in e2
+
+[< (!l1) + (l1 := !l1 + 1, 2), { l1 -> 1 }>]
+
+{1 Exercise 5}
+
+Adapt the implementation code to correspond to the two rules (assign1’) and
+(seq1’) on Slide 45. Give some test cases that distinguish between the original and the new
+semantics.
+
+(see l1_q5.ml)
+
+{1 Exercise 6}
+Fix the L1 semantics to match the implementation, taking care with the
+representation of integers

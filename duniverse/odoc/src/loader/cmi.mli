@@ -18,7 +18,6 @@
 
 module Paths = Odoc_model.Paths
 
-
 val read_interface :
   Odoc_model.Paths.Identifier.ContainerPage.t option ->
   string ->

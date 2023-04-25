@@ -1,8 +1,6 @@
-(lang dune 1.11)
+(lang dune 3.4)
 (name csexp)
-(version 1.5.1)
-
-(allow_approximate_merlin)
+(version 1.5.2)
 
 (license MIT)
 (maintainers "Jeremie Dimino <jeremie@dimino.org>")

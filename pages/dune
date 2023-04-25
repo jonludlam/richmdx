@@ -4,3 +4,20 @@
 (mdx
   (files *.md *.mld)
   (libraries mime_printer imagelib base64 findlib vg gg vg.svg re tyxml tyxml.functor uutf))
+
+(executable
+ (name q2022)
+ (public_name q2022)
+ (modules q2022)
+ (libraries unix))
+
+ (executable
+  (name l1_orig)
+  (public_name l1_orig)
+  (modules l1_orig)
+  )
+
+(executable
+  (name l1_q5)
+  (public_name l1_q5)
+  (modules l1_q5))

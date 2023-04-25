@@ -1,8 +1,8 @@
 (** Print .odocl files. *)
 
 open Odoc_odoc
+open Odoc_odoc.Or_error
 open Odoc_model_desc
-open Or_error
 
 let print_json_desc desc x =
   let yojson = Type_desc_to_yojson.to_yojson desc x in
@@ -167,10 +167,13 @@ let run inp ref =
   let inp = Fpath.v inp in
   Odoc_file.load inp >>= fun unit ->
   match unit.content with
+  | Odoc_file.Source_tree_content tree ->
+      print_json_desc Lang_desc.source_tree_page_t tree;
+      Ok ()
   | Odoc_file.Page_content page ->
       print_json_desc Lang_desc.page_t page;
       Ok ()
-  | Unit_content u -> (
+  | Unit_content (u, _) -> (
       match ref with
       | None ->
           print_json_desc Lang_desc.compilation_unit_t u;

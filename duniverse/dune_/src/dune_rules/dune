@@ -9,6 +9,8 @@
   memo
   ocaml
   dune_re
+  dune_console
+  dune_digest
   opam_file_format
   dune_lang
   dune_glob
@@ -25,9 +27,11 @@
   dune_engine
   dune_config
   unix)
- (synopsis "Internal Dune library, do not use!"))
+ (synopsis "Internal Dune library, do not use!")
+ (instrumentation
+  (backend bisect_ppx)))
 
-(ocamllex ocamlobjinfo cram_lexer)
+(ocamllex ocamlobjinfo)
 
 (rule
  (mode promote)
@@ -53,11 +57,12 @@
  (mode promote)
  (alias runtest)
  (targets setup.defaults.ml)
- (deps %{project_root}/configure.ml)
+ (deps
+  (:configure %{project_root}/boot/configure.ml))
  (action
   (chdir
    %{project_root}
    (setenv
     DUNE_CONFIGURE_OUTPUT
     "src/dune_rules/setup.defaults.ml"
-    (run %{ocaml} configure.ml)))))
+    (run %{ocaml} %{configure})))))

@@ -42,5 +42,6 @@ let test_tree =
 
 {@ocaml[
 # let () = Mime_printer.push "text/odoc" (Format.asprintf "{math %a }" pp_tree test_tree);;
-]@
-{math \frac{\displaystyle \frac{\displaystyle \frac{\displaystyle R \land Q}{\displaystyle R} \qquad \frac{\displaystyle R \land Q}{\displaystyle Q}}{\displaystyle R \land Q} \qquad Q \land R \to V}{\displaystyle V} }}
+][
+{math \frac{\displaystyle \frac{\displaystyle \frac{\displaystyle R \land Q}{\displaystyle R} \qquad \frac{\displaystyle R \land Q}{\displaystyle Q}}{\displaystyle R \land Q} \qquad Q \land R \to V}{\displaystyle V} }
+]}

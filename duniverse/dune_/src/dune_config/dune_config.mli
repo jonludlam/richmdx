@@ -2,6 +2,8 @@
 
 open Stdune
 
+module Display : module type of Display
+
 module Concurrency : sig
   type t =
     | Fixed of int
@@ -44,6 +46,7 @@ module Terminal_persistence : sig
   type t =
     | Preserve
     | Clear_on_rebuild
+    | Clear_on_rebuild_and_flush_history
 
   val all : (string * t) list
 end
@@ -58,7 +61,7 @@ module type S = sig
   type 'a field
 
   type t =
-    { display : Dune_engine.Scheduler.Config.Display.t field
+    { display : Display.t field
     ; concurrency : Concurrency.t field
     ; terminal_persistence : Terminal_persistence.t field
     ; sandboxing_preference : Sandboxing_preference.t field
@@ -108,7 +111,7 @@ val load_config_file : Path.t -> Partial.t
 val adapt_display : t -> output_is_a_tty:bool -> t
 
 (** Initialises the configuration for the process *)
-val init : t -> unit
+val init : t -> watch:bool -> unit
 
 val to_dyn : t -> Dyn.t
 

@@ -77,7 +77,10 @@ let build_imports_map m =
 
 let root_name root = Odoc_model.Root.Odoc_file.name root.Odoc_model.Root.file
 
-let unit_name (Odoc_file.Unit_content { root; _ } | Page_content { root; _ }) =
+let unit_name
+    ( Odoc_file.Unit_content ({ root; _ }, _)
+    | Page_content { root; _ }
+    | Source_tree_content { root; _ } ) =
   root_name root
 
 (** TODO: Propagate warnings instead of printing. *)
@@ -117,7 +120,7 @@ let rec find_map f = function
 let lookup_unit_with_digest ap target_name digest =
   let unit_that_match_digest u =
     match u with
-    | Odoc_file.Unit_content m
+    | Odoc_file.Unit_content (m, _)
       when Digest.compare m.Odoc_model.Lang.Compilation_unit.digest digest = 0
       ->
         Some m
@@ -134,7 +137,9 @@ let lookup_unit_with_digest ap target_name digest =
     TODO: Correctly propagate warnings instead of printing. *)
 let lookup_unit_by_name ap target_name =
   let first_unit u =
-    match u with Odoc_file.Unit_content m -> Some m | Page_content _ -> None
+    match u with
+    | Odoc_file.Unit_content m -> Some m
+    | Page_content _ | Source_tree_content _ -> None
   in
   let rec find_ambiguous tl =
     match find_map first_unit tl with
@@ -150,7 +155,7 @@ let lookup_unit_by_name ap target_name =
           let ambiguous = m :: ambiguous in
           let ambiguous =
             List.map
-              (fun m -> root_name m.Odoc_model.Lang.Compilation_unit.root)
+              (fun (m, _) -> root_name m.Odoc_model.Lang.Compilation_unit.root)
               ambiguous
           in
           let warning =
@@ -160,22 +165,25 @@ let lookup_unit_by_name ap target_name =
               ambiguous target_name
           in
           prerr_endline (Odoc_model.Error.to_string warning));
-      Odoc_xref2.Env.Found m
-  | None -> Not_found
+      Some m
+  | None -> None
 
 (** Lookup an unit. First looks into [imports_map] then searches into the
     paths. *)
 let lookup_unit ~important_digests ~imports_map ap target_name =
+  let of_option f =
+    match f with Some (m, _) -> Odoc_xref2.Env.Found m | None -> Not_found
+  in
   match StringMap.find target_name imports_map with
   | Odoc_model.Lang.Compilation_unit.Import.Unresolved (_, Some digest) ->
       lookup_unit_with_digest ap target_name digest
   | Unresolved (_, None) ->
       if important_digests then Odoc_xref2.Env.Forward_reference
-      else lookup_unit_by_name ap target_name
+      else of_option (lookup_unit_by_name ap target_name)
   | Resolved (root, _) -> lookup_unit_with_digest ap target_name root.digest
   | exception Not_found ->
       if important_digests then Odoc_xref2.Env.Not_found
-      else lookup_unit_by_name ap target_name
+      else of_option (lookup_unit_by_name ap target_name)
 
 (** Lookup a page.
 
@@ -183,14 +191,24 @@ let lookup_unit ~important_digests ~imports_map ap target_name =
 let lookup_page ap target_name =
   let target_name = "page-" ^ target_name in
   let is_page u =
-    match u with Odoc_file.Page_content p -> Some p | Unit_content _ -> None
+    match u with
+    | Odoc_file.Page_content p -> Some p
+    | Unit_content _ | Source_tree_content _ -> None
   in
   let units = load_units_from_name ap target_name in
   match find_map is_page units with Some (p, _) -> Some p | None -> None
 
 (** Add the current unit to the cache. No need to load other units with the same
     name. *)
-let add_unit_to_cache u = Hashtbl.add unit_cache (unit_name u) [ u ]
+let add_unit_to_cache u =
+  let target_name =
+    (match u with
+    | Odoc_file.Page_content _ -> "page-"
+    | Unit_content _ -> ""
+    | Source_tree_content _ -> "page-")
+    ^ unit_name u
+  in
+  Hashtbl.add unit_cache target_name [ u ]
 
 type t = {
   important_digests : bool;
@@ -202,29 +220,47 @@ let create ~important_digests ~directories ~open_modules =
   let ap = Accessible_paths.create ~directories in
   { important_digests; ap; open_modules }
 
+(** Helpers for creating xref2 env. *)
+
+open Odoc_xref2
+
+let build_compile_env_for_unit
+    { important_digests; ap; open_modules = open_units } impl_shape m =
+  add_unit_to_cache (Odoc_file.Unit_content (m, impl_shape));
+  let imports_map = build_imports_map m in
+  let lookup_unit = lookup_unit ~important_digests ~imports_map ap
+  and lookup_page = lookup_page ap
+  and lookup_def _ = failwith "Cannot lookup definition" in
+  let resolver = { Env.open_units; lookup_unit; lookup_page; lookup_def } in
+  Env.env_of_unit m ~linking:false resolver
+
 (** [important_digests] and [imports_map] only apply to modules. *)
-let build ?u { important_digests; ap; open_modules } ~imports_map =
-  (match u with Some u -> add_unit_to_cache u | None -> ());
+let build ?(imports_map = StringMap.empty)
+    { important_digests; ap; open_modules = open_units } =
+  let lookup_def =
+    Odoc_loader.Lookup_def.lookup_def (fun x ->
+        match lookup_unit_by_name ap x with
+        | Some (m, Some shape) -> Some (m, shape)
+        | _ -> None)
+  in
   let lookup_unit = lookup_unit ~important_digests ~imports_map ap
   and lookup_page = lookup_page ap in
-  { Odoc_xref2.Env.open_units = open_modules; lookup_unit; lookup_page }
+  { Env.open_units; lookup_unit; lookup_page; lookup_def }
 
-let build_env_for_unit t ~linking m =
+let build_link_env_for_unit t m impl_shape =
+  add_unit_to_cache (Odoc_file.Unit_content (m, impl_shape));
   let imports_map = build_imports_map m in
-  let resolver = build ~u:(Odoc_file.Unit_content m) t ~imports_map in
-  Odoc_xref2.Env.env_of_unit m ~linking resolver
+  let resolver = build ~imports_map t in
+  Env.env_of_unit m ~linking:true resolver
 
 let build_env_for_page t p =
-  let imports_map = StringMap.empty in
-  let t = { t with important_digests = false } in
-  let resolver = build ~u:(Odoc_file.Page_content p) t ~imports_map in
-  Odoc_xref2.Env.env_of_page p resolver
+  add_unit_to_cache (Odoc_file.Page_content p);
+  let resolver = build { t with important_digests = false } in
+  Env.env_of_page p resolver
 
 let build_env_for_reference t =
-  let imports_map = StringMap.empty in
-  let t = { t with important_digests = false } in
-  let resolver = build t ~imports_map in
-  Odoc_xref2.Env.env_for_reference resolver
+  let resolver = build { t with important_digests = false } in
+  Env.env_for_reference resolver
 
 let lookup_page t target_name = lookup_page t.ap target_name
 

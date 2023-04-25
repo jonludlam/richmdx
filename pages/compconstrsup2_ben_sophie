@@ -1,0 +1,45 @@
+{0 Supervision notes}
+
+{1 Question 1}
+
+{2 Ben}
+
+Unnecessary to put the function in a ref. Having [not_done] as a ref also a little unnecessary in this case, but no bad thing. Otherwise looks fine
+
+{2 Sophie}
+
+Similar with the [not_done]
+
+
+{1 Question 2}
+
+{2 Ben}
+
+Good, following the lectures in the derivation
+
+{2 Sophie}
+
+fine
+
+{1 Question 3}
+
+{2 Ben}
+
+Good. The [Update_if_list] is a bit of a mouthful, and actually unnecessary. We can just have our [env] as a list of pairs.
+
+{2 Sophie}
+
+Not done?
+
+{1 Question 4}
+
+{2 Ben}
+
+Good.
+
+{2 Sophie}
+
+OK, but don't put syntactically incorrect stuff in answers, unless clearly annotated as such!
+
+{1 2017p3q4}
+

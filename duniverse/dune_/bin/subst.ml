@@ -364,7 +364,7 @@ let subst () =
   | None -> Fiber.return ()
   | Some kind -> Memo.run (subst { kind; root = Path.root })
 
-(** A string that is "3.4.1" but not expanded by [dune subst] *)
+(** A string that is "3.7.1" but not expanded by [dune subst] *)
 let literal_version = "%%" ^ "VERSION%%"
 
 let doc = "Substitute watermarks in source files."
@@ -418,21 +418,22 @@ let man =
   ; `Blocks Common.help_secs
   ]
 
-let info = Term.info "subst" ~doc ~man
+let info = Cmd.info "subst" ~doc ~man
 
 let term =
   let+ () = Common.build_info
   and+ debug_backtraces = Common.debug_backtraces in
   let config : Dune_config.t =
     { Dune_config.default with
-      display = { verbosity = Quiet; status_line = false }
+      display = Dune_config.Display.quiet
     ; concurrency = Fixed 1
     }
   in
   Dune_engine.Clflags.debug_backtraces debug_backtraces;
   Path.set_root (Path.External.cwd ());
-  Path.Build.set_build_dir (Path.Build.Kind.of_string Common.default_build_dir);
-  Dune_config.init config;
+  Path.Build.set_build_dir
+    (Path.Outside_build_dir.of_string Common.default_build_dir);
+  Dune_config.init config ~watch:false;
   Log.init_disabled ();
   Dune_engine.Scheduler.Run.go
     ~on_event:(fun _ _ -> ())
@@ -440,4 +441,4 @@ let term =
        ~signal_watcher:`No)
     subst
 
-let command = (term, info)
+let command = Cmd.v info term

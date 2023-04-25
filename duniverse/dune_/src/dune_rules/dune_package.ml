@@ -9,29 +9,27 @@ let fn = "dune-package"
 module Lib = struct
   type t =
     { info : Path.t Lib_info.t
-    ; modules : Modules.t option
     ; main_module_name : Module_name.t option
     }
 
-  let make ~info ~main_module_name ~modules =
+  let make ~info ~main_module_name =
     let obj_dir = Lib_info.obj_dir info in
     let dir = Obj_dir.dir obj_dir in
     let map_path p =
       if Path.is_managed p then Path.relative dir (Path.basename p) else p
     in
     let info = Lib_info.map_path info ~f:map_path in
-    { info; main_module_name; modules }
+    { info; main_module_name }
 
-  let of_dune_lib ~info ~main_module_name ~modules =
-    make ~info ~main_module_name ~modules:(Some modules)
+  let of_dune_lib ~info ~main_module_name = make ~info ~main_module_name
 
-  let of_findlib info = make ~info ~main_module_name:None ~modules:None
+  let of_findlib info = make ~info ~main_module_name:None
 
   let dir_of_name name =
     let _, components = Lib_name.split name in
     Path.Local.L.relative Path.Local.root components
 
-  let encode ~package_root { info; main_module_name; modules } =
+  let encode ~package_root { info; main_module_name } =
     let open Dune_lang.Encoder in
     let no_loc f (_loc, x) = f x in
     let path = Dpath.Local.encode ~dir:package_root in
@@ -59,6 +57,11 @@ module Lib = struct
       | External e -> e
       | Local -> assert false
     in
+    let modules =
+      match Lib_info.modules info with
+      | External ms -> ms
+      | Local -> None
+    in
     let jsoo_runtime = Lib_info.jsoo_runtime info in
     let virtual_ = Option.is_some (Lib_info.virtual_ info) in
     let instrumentation_backend = Lib_info.instrumentation_backend info in
@@ -77,7 +80,8 @@ module Lib = struct
        ; mode_paths "archives" archives
        ; mode_paths "plugins" plugins
        ; paths "foreign_objects" foreign_objects
-       ; paths "foreign_archives" (Lib_info.foreign_archives info)
+       ; field_i "foreign_archives" (Mode.Map.encode path)
+           (Lib_info.foreign_archives info)
        ; paths "native_archives" native_archives
        ; paths "jsoo_runtime" jsoo_runtime
        ; Lib_dep.L.field_encode requires ~name:"requires"
@@ -86,9 +90,9 @@ module Lib = struct
        ; field_o "default_implementation" (no_loc Lib_name.encode)
            default_implementation
        ; field_o "main_module_name" Module_name.encode main_module_name
-       ; field_l "modes" sexp (Mode.Dict.Set.encode modes)
+       ; field_l "modes" sexp (Lib_mode.Map.Set.encode modes)
        ; field_l "obj_dir" sexp (Obj_dir.encode obj_dir)
-       ; field_o "modules" Modules.encode modules
+       ; field_o "modules" (Modules.encode ~src_dir:package_root) modules
        ; field_o "special_builtin_support"
            Lib_info.Special_builtin_support.encode special_builtin_support
        ; field_o "instrumentation.backend" (no_loc Lib_name.encode)
@@ -127,16 +131,23 @@ module Lib = struct
        in
        let+ synopsis = field_o "synopsis" string
        and+ loc = loc
-       and+ modes = field_l "modes" Mode.decode
+       and+ modes = field_l "modes" Lib_mode.decode
        and+ kind = field "kind" Lib_kind.decode
        and+ archives = mode_paths "archives"
        and+ plugins = mode_paths "plugins"
        and+ foreign_objects = paths "foreign_objects"
        and+ foreign_archives =
-         if lang.version >= (2, 0) then paths "foreign_archives"
+         if lang.version >= (3, 5) then
+           let+ field_o = field_o "foreign_archives" (Mode.Map.decode path) in
+           match field_o with
+           | Some archives -> archives
+           | None -> Mode.Map.empty
+         else if lang.version >= (2, 0) then
+           let+ paths = paths "foreign_archives" in
+           Mode.Map.Multi.create_for_all_modes paths
          else
            let+ m = mode_paths "foreign_archives" in
-           m.byte
+           Mode.Map.Multi.create_for_all_modes m.byte
        and+ native_archives = paths "native_archives"
        and+ jsoo_runtime = paths "jsoo_runtime"
        and+ requires = field_l "requires" (Lib_dep.decode ~allow_re_export:true)
@@ -146,10 +157,7 @@ module Lib = struct
        and+ orig_src_dir = field_o "orig_src_dir" path
        and+ modules =
          let src_dir = Obj_dir.dir obj_dir in
-         field "modules"
-           (Modules.decode
-              ~implements:(Option.is_some implements)
-              ~src_dir ~version:lang.version)
+         field "modules" (Modules.decode ~src_dir)
        and+ special_builtin_support =
          field_o "special_builtin_support"
            (Dune_lang.Syntax.since Stanza.syntax (1, 10)
@@ -157,7 +165,7 @@ module Lib = struct
        and+ instrumentation_backend =
          field_o "instrumentation.backend" (located Lib_name.decode)
        in
-       let modes = Mode.Dict.Set.of_list modes in
+       let modes = Lib_mode.Map.Set.of_list modes in
        let entry_modules =
          Modules.entry_modules modules |> List.map ~f:Module.name
        in
@@ -172,7 +180,6 @@ module Lib = struct
          let version = None in
          let main_module_name = Lib_info.Inherited.This main_module_name in
          let foreign_objects = Lib_info.Source.External foreign_objects in
-         let jsoo_archive = None in
          let preprocess = Preprocess.Per_module.no_preprocessing () in
          let virtual_deps = [] in
          let dune_version = None in
@@ -183,31 +190,32 @@ module Lib = struct
            Some (Lib_info.Inherited.This (Modules.wrapped modules))
          in
          let entry_modules = Lib_info.Source.External (Ok entry_modules) in
+         let modules = Lib_info.Source.External (Some modules) in
          Lib_info.create ~path_kind:External ~loc ~name ~kind ~status ~src_dir
            ~orig_src_dir ~obj_dir ~version ~synopsis ~main_module_name
            ~sub_systems ~requires ~foreign_objects ~plugins ~archives
            ~ppx_runtime_deps ~foreign_archives
            ~native_archives:(Files native_archives) ~foreign_dll_files:[]
-           ~jsoo_runtime ~jsoo_archive ~preprocess ~enabled ~virtual_deps
-           ~dune_version ~virtual_ ~entry_modules ~implements
-           ~default_implementation ~modes ~wrapped ~special_builtin_support
-           ~exit_module:None ~instrumentation_backend
+           ~jsoo_runtime ~preprocess ~enabled ~virtual_deps ~dune_version
+           ~virtual_ ~entry_modules ~implements ~default_implementation ~modes
+           ~modules ~wrapped ~special_builtin_support ~exit_module:None
+           ~instrumentation_backend
        in
-       { info; main_module_name; modules = Some modules })
-
-  let modules t = t.modules
+       { info; main_module_name })
 
   let main_module_name t = t.main_module_name
 
-  let wrapped t = Option.map t.modules ~f:Modules.wrapped
+  let wrapped t =
+    match Lib_info.modules t.info with
+    | External modules -> Option.map modules ~f:Modules.wrapped
+    | Local -> None
 
   let info dp = dp.info
 
-  let to_dyn { info; modules; main_module_name } =
+  let to_dyn { info; main_module_name } =
     let open Dyn in
     record
       [ ("info", Lib_info.to_dyn Path.to_dyn info)
-      ; ("modules", option Modules.to_dyn modules)
       ; ("main_module_name", option Module_name.to_dyn main_module_name)
       ]
 end
@@ -415,13 +423,14 @@ module Or_meta = struct
 
   let load file =
     let dir = Path.parent_exn file in
-    Fs_memo.with_lexbuf_from_file file ~f:(fun lexbuf ->
-        (* XXX stop catching code errors, invalid args, etc. *)
-        Result.try_with (fun () ->
-            Vfile.parse_contents lexbuf ~f:(fun lang ->
-                String_with_vars.set_decoding_env
-                  (Pform.Env.initial lang.version)
-                  (decode ~lang ~dir))))
+    Path.as_outside_build_dir_exn file
+    |> Fs_memo.with_lexbuf_from_file ~f:(fun lexbuf ->
+           (* XXX stop catching code errors, invalid args, etc. *)
+           Result.try_with (fun () ->
+               Vfile.parse_contents lexbuf ~f:(fun lang ->
+                   String_with_vars.set_decoding_env
+                     (Pform.Env.initial lang.version)
+                     (decode ~lang ~dir))))
 
   let pp ~dune_version ppf t =
     let t = encode ~dune_version t in

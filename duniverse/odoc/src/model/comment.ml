@@ -24,10 +24,12 @@ type non_link_inline_element =
    cross-referencer. *)
 type link_content = non_link_inline_element with_location list
 
+type reference_element = [ `Reference of Reference.t * link_content ]
+
 type inline_element =
   [ leaf_inline_element
   | `Styled of style * inline_element with_location list
-  | `Reference of Reference.t * link_content
+  | reference_element
   | `Link of string * link_content ]
 
 type paragraph = inline_element with_location list
@@ -53,7 +55,9 @@ type tag =
   [ `Author of string
   | `Deprecated of nestable_block_element with_location list
   | `Param of string * nestable_block_element with_location list
-  | `Raise of string * nestable_block_element with_location list
+  | `Raise of
+    [ `Code_span of string | reference_element ]
+    * nestable_block_element with_location list
   | `Return of nestable_block_element with_location list
   | `See of
     [ `Url | `File | `Document ]
@@ -82,7 +86,8 @@ type heading_attrs = {
 
 type block_element =
   [ nestable_block_element
-  | `Heading of heading_attrs * Identifier.Label.t * link_content
+  | `Heading of
+    heading_attrs * Identifier.Label.t * inline_element with_location list
   | `Tag of tag ]
 
 type docs = block_element with_location list
@@ -94,3 +99,17 @@ type docs_or_stop = [ `Docs of docs | `Stop ]
 let synopsis = function
   | { Location_.value = `Paragraph p; _ } :: _ -> Some p
   | _ -> None
+
+let rec link_content_of_inline_element :
+    inline_element with_location -> link_content =
+ fun x ->
+  let v = x.Location_.value in
+  match v with
+  | #leaf_inline_element as e -> [ { x with value = e } ]
+  | `Reference (_, r) -> r
+  | `Link (_, l) -> l
+  | `Styled (st, elems) ->
+      [ { x with value = `Styled (st, link_content_of_inline_elements elems) } ]
+
+and link_content_of_inline_elements l =
+  l |> List.map link_content_of_inline_element |> List.concat

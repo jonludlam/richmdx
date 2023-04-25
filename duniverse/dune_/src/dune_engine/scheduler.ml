@@ -4,47 +4,8 @@ open Fiber.O
 module Config = struct
   include Config
 
-  module Display = struct
-    type verbosity =
-      | Quiet
-      | Short
-      | Verbose
-
-    type t =
-      { status_line : bool
-      ; verbosity : verbosity
-      }
-
-    (* Even though [status_line] is true by default in most of these, the status
-       line is actually not shown if the output is redirected to a file or a
-       pipe. *)
-    let all =
-      [ ("progress", { verbosity = Quiet; status_line = true })
-      ; ("verbose", { verbosity = Verbose; status_line = true })
-      ; ("short", { verbosity = Short; status_line = true })
-      ; ("quiet", { verbosity = Quiet; status_line = false })
-      ]
-
-    let verbosity_to_dyn : verbosity -> Dyn.t = function
-      | Quiet -> Variant ("Quiet", [])
-      | Short -> Variant ("Short", [])
-      | Verbose -> Variant ("Verbose", [])
-
-    let to_dyn { status_line; verbosity } : Dyn.t =
-      Record
-        [ ("status_line", Dyn.Bool status_line)
-        ; ("verbosity", verbosity_to_dyn verbosity)
-        ]
-
-    let console_backend t =
-      match t.status_line with
-      | false -> Console.Backend.dumb
-      | true -> Console.Backend.progress
-  end
-
   type t =
     { concurrency : int
-    ; display : Display.t
     ; stats : Dune_stats.t option
     ; insignificant_changes : [ `Ignore | `React ]
     ; signal_watcher : [ `Yes | `No ]
@@ -56,62 +17,47 @@ type job =
   ; ivar : Proc.Process_info.t Fiber.Ivar.t
   }
 
-module Signal = struct
-  type t =
-    | Int
-    | Quit
-    | Term
-
-  let to_dyn t : Dyn.t =
-    match t with
-    | Int -> Variant ("Int", [])
-    | Quit -> Variant ("Quit", [])
-    | Term -> Variant ("Term", [])
-
-  let compare x y =
-    match (x, y) with
-    | Int, Int -> Eq
-    | Int, _ -> Lt
-    | _, Int -> Gt
-    | Quit, Quit -> Eq
-    | Quit, _ -> Lt
-    | _, Quit -> Gt
-    | Term, Term -> Eq
-
-  include Comparable.Make (struct
-    type nonrec t = t
-
-    let compare = compare
-
-    let to_dyn = to_dyn
-  end)
-
-  let all = [ Int; Quit; Term ]
-
-  let to_int = function
-    | Int -> Sys.sigint
-    | Quit -> Sys.sigquit
-    | Term -> Sys.sigterm
-
-  let of_int =
-    List.map all ~f:(fun t -> (to_int t, t))
-    |> Int.Map.of_list_reduce ~f:(fun _ t -> t)
-    |> Int.Map.find
-
-  let name t = Signal.name (to_int t)
-end
-
 module Shutdown = struct
-  module Signal = Signal
-
   module Reason = struct
-    type t =
-      | Requested
-      | Signal of Signal.t
+    module T = struct
+      type t =
+        | Requested
+        | Timeout
+        | Signal of Signal.t
+
+      let to_dyn t =
+        match t with
+        | Requested -> Dyn.Variant ("Requested", [])
+        | Timeout -> Dyn.Variant ("Timeout", [])
+        | Signal signal -> Dyn.Variant ("Signal", [ Signal.to_dyn signal ])
+
+      let compare a b =
+        match (a, b) with
+        | Requested, Requested -> Eq
+        | Requested, _ -> Lt
+        | _, Requested -> Gt
+        | Timeout, Timeout -> Eq
+        | Timeout, _ -> Lt
+        | _, Timeout -> Gt
+        | Signal a, Signal b -> Signal.compare a b
+    end
+
+    include T
+    include Comparable.Make (T)
   end
 
   exception E of Reason.t
+
+  let () =
+    Printexc.register_printer (function
+      | E Requested -> Some "shutdown: requested"
+      | E Timeout -> Some "shutdown: timeout"
+      | E (Signal s) ->
+        Some (sprintf "shutdown: signal %s received" (Signal.name s))
+      | _ -> None)
 end
+
+let blocked_signals : Signal.t list = [ Int; Quit; Term ]
 
 module Thread : sig
   val spawn : signal_watcher:[ `Yes | `No ] -> (unit -> 'a) -> unit
@@ -124,7 +70,7 @@ end = struct
 
   let block_signals =
     lazy
-      (let signos = List.map Signal.all ~f:Signal.to_int in
+      (let signos = List.map blocked_signals ~f:Signal.to_int in
        ignore (Unix.sigprocmask SIG_BLOCK signos : int list))
 
   let create ~signal_watcher =
@@ -140,32 +86,14 @@ end = struct
       in
       Thread.create f x
 
+  let () =
+    Fdecl.set Console.Threaded.spawn_thread (fun f ->
+        let (_ : Thread.t) = create ~signal_watcher:`Yes f () in
+        ())
+
   let spawn ~signal_watcher f =
     let (_ : Thread.t) = create ~signal_watcher f () in
     ()
-end
-
-module Shutdown_reason = struct
-  module T = struct
-    type t =
-      | Shutdown
-      | Signal of Signal.t
-
-    let to_dyn t =
-      match t with
-      | Shutdown -> Dyn.Variant ("Shutdown", [])
-      | Signal signal -> Dyn.Variant ("Signal", [ Signal.to_dyn signal ])
-
-    let compare a b =
-      match (a, b) with
-      | Shutdown, Shutdown -> Eq
-      | Shutdown, _ -> Lt
-      | _, Shutdown -> Gt
-      | Signal a, Signal b -> Signal.compare a b
-  end
-
-  include T
-  include Comparable.Make (T)
 end
 
 (** The event queue *)
@@ -179,16 +107,13 @@ module Event : sig
     | Build_inputs_changed of build_input_change Nonempty_list.t
     | File_system_sync of Dune_file_watcher.Sync_id.t
     | File_system_watcher_terminated
-    | Job_completed of job * Proc.Process_info.t
-    | Shutdown of Shutdown_reason.t
-    | Worker_task of Fiber.fill
-    | Yield of unit Fiber.Ivar.t
-    | Timer of Fiber.fill
+    | Shutdown of Shutdown.Reason.t
+    | Fiber_fill_ivar of Fiber.fill
 
   module Queue : sig
-    type t
+    type event := t
 
-    type event
+    type t
 
     val create : Dune_stats.t option -> t
 
@@ -221,13 +146,12 @@ module Event : sig
 
     val send_job_completed : t -> job -> Proc.Process_info.t -> unit
 
-    val send_signal : t -> Shutdown_reason.t -> unit
+    val send_shutdown : t -> Shutdown.Reason.t -> unit
 
     val send_timers_completed : t -> Fiber.fill Nonempty_list.t -> unit
 
     val yield_if_there_are_pending_events : t -> unit Fiber.t
   end
-  with type event := t
 end = struct
   type build_input_change =
     | Fs_event of Dune_file_watcher.Fs_memo_event.t
@@ -238,11 +162,8 @@ end = struct
     | Build_inputs_changed of build_input_change Nonempty_list.t
     | File_system_sync of Dune_file_watcher.Sync_id.t
     | File_system_watcher_terminated
-    | Job_completed of job * Proc.Process_info.t
-    | Shutdown of Shutdown_reason.t
-    | Worker_task of Fiber.fill
-    | Yield of unit Fiber.Ivar.t
-    | Timer of Fiber.fill
+    | Shutdown of Shutdown.Reason.t
+    | Fiber_fill_ivar of Fiber.fill
 
   module Invalidation_event = struct
     type t =
@@ -257,7 +178,7 @@ end = struct
       { jobs_completed : (job * Proc.Process_info.t) Queue.t
       ; file_watcher_tasks : (unit -> Dune_file_watcher.Event.t list) Queue.t
       ; mutable invalidation_events : Invalidation_event.t list
-      ; mutable signals : Shutdown_reason.Set.t
+      ; mutable shutdown_reasons : Shutdown.Reason.Set.t
       ; mutex : Mutex.t
       ; cond : Condition.t
       ; mutable pending_jobs : int
@@ -274,7 +195,7 @@ end = struct
       let file_watcher_tasks = Queue.create () in
       let worker_tasks_completed = Queue.create () in
       let invalidation_events = [] in
-      let signals = Shutdown_reason.Set.empty in
+      let shutdown_reasons = Shutdown.Reason.Set.empty in
       let mutex = Mutex.create () in
       let cond = Condition.create () in
       let pending_jobs = 0 in
@@ -284,7 +205,7 @@ end = struct
       ; file_watcher_tasks
       ; invalidation_events
       ; timers
-      ; signals
+      ; shutdown_reasons
       ; mutex
       ; cond
       ; pending_jobs
@@ -323,7 +244,7 @@ end = struct
 
       type t
 
-      val signal : t
+      val shutdown : t
 
       val file_watcher_task : t
 
@@ -347,11 +268,13 @@ end = struct
 
       let run t q = t q
 
-      let signal : t =
+      let shutdown : t =
        fun q ->
-        Option.map (Shutdown_reason.Set.choose q.signals) ~f:(fun signal ->
-            q.signals <- Shutdown_reason.Set.remove q.signals signal;
-            Shutdown signal)
+        Option.map (Shutdown.Reason.Set.choose q.shutdown_reasons)
+          ~f:(fun reason ->
+            q.shutdown_reasons <-
+              Shutdown.Reason.Set.remove q.shutdown_reasons reason;
+            Shutdown reason)
 
       let file_watcher_task q =
         Option.map (Queue.pop q.file_watcher_tasks) ~f:(fun job ->
@@ -399,20 +322,20 @@ end = struct
         Option.map (Queue.pop q.jobs_completed) ~f:(fun (job, proc_info) ->
             q.pending_jobs <- q.pending_jobs - 1;
             assert (q.pending_jobs >= 0);
-            Job_completed (job, proc_info))
+            Fiber_fill_ivar (Fill (job.ivar, proc_info)))
 
       let worker_tasks_completed q =
         Option.map (Queue.pop q.worker_tasks_completed) ~f:(fun fill ->
             q.pending_worker_tasks <- q.pending_worker_tasks - 1;
-            Worker_task fill)
+            Fiber_fill_ivar fill)
 
       let yield q =
         Option.map q.yield ~f:(fun ivar ->
             q.yield <- None;
-            Yield ivar)
+            Fiber_fill_ivar (Fill (ivar, ())))
 
       let timers q =
-        Option.map (Queue.pop q.timers) ~f:(fun timer -> Timer timer)
+        Option.map (Queue.pop q.timers) ~f:(fun timer -> Fiber_fill_ivar timer)
 
       let chain list q = List.find_map list ~f:(fun f -> f q)
     end
@@ -432,7 +355,7 @@ end = struct
                     latency is also important. [jobs_completed] and [yield] are
                     where the bulk of the work is done, so they are the lowest
                     priority to avoid starving other things. *)
-                 [ signal
+                 [ shutdown
                  ; file_watcher_task
                  ; invalidation
                  ; worker_tasks_completed
@@ -471,9 +394,10 @@ end = struct
     let send_job_completed q job proc_info =
       add_event q (fun q -> Queue.push q.jobs_completed (job, proc_info))
 
-    let send_signal q signal =
+    let send_shutdown q signal =
       add_event q (fun q ->
-          q.signals <- Shutdown_reason.Set.add q.signals signal)
+          q.shutdown_reasons <-
+            Shutdown.Reason.Set.add q.shutdown_reasons signal)
 
     let send_file_watcher_task q job =
       add_event q (fun q -> Queue.push q.file_watcher_tasks job)
@@ -487,8 +411,6 @@ end = struct
     let pending_worker_tasks q = q.pending_worker_tasks
   end
 end
-
-module Event_queue = Event.Queue
 
 let kill_process_group pid signal =
   match Sys.win32 with
@@ -661,7 +583,7 @@ end
 module Signal_watcher : sig
   val init : Event.Queue.t -> unit
 end = struct
-  let signos = List.map Signal.all ~f:Signal.to_int
+  let signos = List.map blocked_signals ~f:Signal.to_int
 
   let warning =
     {|
@@ -683,16 +605,14 @@ end = struct
       Staged.stage (fun () ->
           assert (Unix.read r buf 0 1 = 1);
           Signal.Int))
-    else
-      Staged.stage (fun () ->
-          Thread.wait_signal signos |> Signal.of_int |> Option.value_exn)
+    else Staged.stage (fun () -> Thread.wait_signal signos |> Signal.of_int)
 
   let run q =
     let last_exit_signals = Queue.create () in
     let wait_signal = Staged.unstage (signal_waiter ()) in
     while true do
       let signal = wait_signal () in
-      Event.Queue.send_signal q (Signal signal);
+      Event.Queue.send_shutdown q (Signal signal);
       match signal with
       | Int | Quit | Term ->
         let now = Unix.gettimeofday () in
@@ -707,6 +627,7 @@ end = struct
         let n = Queue.length last_exit_signals in
         if n = 2 then prerr_endline warning;
         if n = 3 then sys_exit 1
+      | _ -> (* we only blocked the signals above *) assert false
     done
 
   let init q = Thread.spawn ~signal_watcher:`Yes (fun () -> run q)
@@ -843,10 +764,10 @@ end = struct
     Mutex.unlock t.mutex
 end
 
-(** All fields of [t] must be immutable. This is because we re-create [t]
-    everytime we start a new build to locally set the [cancel] field. However,
-    all instances of [t] must share all other fields, in particular the
-    references such as [status].
+(** All fields of [t] must be immutable. This is because we re-create [t] every
+    time we start a new build to locally set the [cancel] field. However, all
+    instances of [t] must share all other fields, in particular the references
+    such as [status].
 
     Another option would be to split [t] in two records such as:
 
@@ -888,12 +809,11 @@ let t_opt () = Fiber.Var.get t
 
 let t () = Fiber.Var.get_exn t
 
-let running_jobs_count t = Event.Queue.pending_jobs t.events
+let stats () =
+  let+ t = t () in
+  t.config.stats
 
-let yield_if_there_are_pending_events () =
-  t_opt () >>= function
-  | None -> Fiber.return ()
-  | Some t -> Event.Queue.yield_if_there_are_pending_events t.events
+let running_jobs_count t = Event.Queue.pending_jobs t.events
 
 exception Build_cancelled
 
@@ -939,28 +859,29 @@ let wait_for_process t pid =
   | Cancelled () -> cancelled ()
   | Not_cancelled -> res
 
-let got_signal signal =
+let got_shutdown reason =
   if !Log.verbose then
-    match (signal : Shutdown_reason.t) with
-    | Shutdown -> Log.info [ Pp.textf "Shutting down." ]
+    match (reason : Shutdown.Reason.t) with
+    | Timeout -> Log.info [ Pp.text "Timeout." ]
+    | Requested -> Log.info [ Pp.text "Shutting down." ]
     | Signal signal ->
       Log.info [ Pp.textf "Got signal %s, exiting." (Signal.name signal) ]
 
 let filesystem_watcher_terminated () =
   Log.info [ Pp.textf "Filesystem watcher terminated, exiting." ]
 
-type saw_signal =
+type saw_shutdown =
   | Ok
-  | Got_signal
+  | Got_shutdown
 
 let kill_and_wait_for_all_processes t =
   Process_watcher.killall t.process_watcher Sys.sigkill;
   let saw_signal = ref Ok in
   while Event.Queue.pending_jobs t.events > 0 do
     match Event.Queue.next t.events with
-    | Shutdown signal ->
-      got_signal signal;
-      saw_signal := Got_signal
+    | Shutdown reason ->
+      got_shutdown reason;
+      saw_signal := Got_shutdown
     | _ -> ()
   done;
   !saw_signal
@@ -1039,7 +960,6 @@ end = struct
   let rec iter (t : t) : Fiber.fill Nonempty_list.t =
     t.handler t.config Tick;
     match Event.Queue.next t.events with
-    | Job_completed (job, proc_info) -> [ Fill (job.ivar, proc_info) ]
     | File_watcher_task job ->
       let events = job () in
       Event.Queue.send_file_watcher_events t.events events;
@@ -1051,19 +971,13 @@ end = struct
         Dune_file_watcher.Sync_id.Table.remove t.fs_syncs id;
         [ Fill (ivar, ()) ])
     | Build_inputs_changed events -> build_input_change t events
-    | Timer fill | Worker_task fill -> [ fill ]
     | File_system_watcher_terminated ->
       filesystem_watcher_terminated ();
       raise (Abort Already_reported)
-    | Yield ivar -> [ Fill (ivar, ()) ]
-    | Shutdown signal ->
-      got_signal signal;
-      raise
-      @@ Abort
-           (Shutdown_requested
-              (match signal with
-              | Shutdown -> Requested
-              | Signal s -> Signal s))
+    | Fiber_fill_ivar fill -> [ fill ]
+    | Shutdown reason ->
+      got_shutdown reason;
+      raise @@ Abort (Shutdown_requested reason)
 
   and build_input_change (t : t) events =
     let invalidation = handle_invalidation_events events in
@@ -1132,7 +1046,7 @@ end = struct
     let res = run t f in
     Console.Status_line.clear ();
     match kill_and_wait_for_all_processes t with
-    | Got_signal -> Error Already_reported
+    | Got_shutdown -> Error Already_reported
     | Ok -> res
 end
 
@@ -1175,6 +1089,8 @@ module Worker = struct
       Code_error.raise "Scheduler.Worker.task_exn: worker stopped" []
     | Error (`Exn e) -> Exn_with_backtrace.reraise e
 end
+
+let () = Fdecl.set Csexp_rpc.worker (module Worker)
 
 let flush_file_watcher t =
   match t.file_watcher with
@@ -1260,10 +1176,33 @@ module Run = struct
         };
     t
 
+  (* Work we're allowed to do between successive polling iterations. this work
+     should be fast and never fail (within reason) *)
+  let run_when_idle stats : unit =
+    (* Technically, flushing can fail with some IO error and disrupt the build.
+       But we don't care because the user enabled this manually with
+       [--trace-file] *)
+    Option.iter stats ~f:(fun stats ->
+        let event =
+          let fields =
+            let ts =
+              Chrome_trace.Event.Timestamp.of_float_seconds
+                (Unix.gettimeofday ())
+            in
+            Chrome_trace.Event.common_fields ~name:"watch mode iteration" ~ts ()
+          in
+          (* the instant event allows us to separate build commands from
+             different iterations of the watch mode in the event viewer *)
+          Chrome_trace.Event.instant ~scope:Global fields
+        in
+        Dune_stats.emit stats event;
+        Dune_stats.flush stats)
+
   let poll step =
     let* t = poll_init () in
     let rec loop () =
       let* _res = poll_iter t step in
+      run_when_idle t.config.stats;
       let* () = wait_for_build_input_change t in
       loop ()
     in
@@ -1329,7 +1268,7 @@ module Run = struct
               (fun () ->
                 let+ res = Alarm_clock.await sleep in
                 match res with
-                | `Finished -> Event_queue.send_signal t.events Shutdown
+                | `Finished -> Event_queue.send_shutdown t.events Timeout
                 | `Cancelled -> ())
               (fun () ->
                 Fiber.finalize run ~finally:(fun () ->
@@ -1349,7 +1288,7 @@ module Run = struct
         | `Kill pid -> ignore (wait_for_process t pid : _ Fiber.t)
         | `Thunk f -> f ()
         | `No_op -> ());
-    ignore (kill_and_wait_for_all_processes t : saw_signal);
+    ignore (kill_and_wait_for_all_processes t : saw_shutdown);
     if Lazy.is_val t.alarm_clock then
       Alarm_clock.close (Lazy.force t.alarm_clock);
     match result with
@@ -1360,7 +1299,7 @@ end
 
 let shutdown () =
   let+ t = t () in
-  Event.Queue.send_signal t.events Shutdown
+  Event.Queue.send_shutdown t.events Requested
 
 let inject_memo_invalidation invalidation =
   let* t = t () in
@@ -1398,10 +1337,6 @@ let sleep duration =
   | `Cancelled ->
     (* cancellation mechanism isn't exposed to the user *)
     assert false
-
-let flush_file_watcher () =
-  let* t = t () in
-  flush_file_watcher t
 
 let wait_for_build_input_change () =
   let* t = t () in

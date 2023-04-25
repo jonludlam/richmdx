@@ -14,6 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+open Odoc_model
+open Odoc_model.Paths
 open Or_error
 
 type parent_cli_spec =
@@ -21,7 +23,16 @@ type parent_cli_spec =
   | CliPackage of string
   | CliNoparent
 
-(** Produces .odoc files out of [.cm{i,t,ti}] or .mld files. *)
+val name_of_output : prefix:string -> Fs.File.t -> string
+(** Compute the name of the page from the output file. Prefix is the prefix to
+    remove from the filename. *)
+
+val resolve_parent_page :
+  Resolver.t ->
+  string ->
+  (Identifier.ContainerPage.t * Lang.Page.child list, [> msg ]) result
+(** Parse and resolve a parent reference. Returns the identifier of the parent
+    and its children as a list of reference. *)
 
 val compile :
   resolver:Resolver.t ->
@@ -30,5 +41,7 @@ val compile :
   children:string list ->
   output:Fs.File.t ->
   warnings_options:Odoc_model.Error.warnings_options ->
+  source:(Fpath.t * string list) option ->
   Fs.File.t ->
   (unit, [> msg ]) result
+(** Produces .odoc files out of [.cm{i,t,ti}] or .mld files. *)

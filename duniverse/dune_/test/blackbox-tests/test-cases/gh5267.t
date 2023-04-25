@@ -16,8 +16,7 @@ same directory.
   $ cat >bar.ml <<EOF
   > module M = Foo
   > EOF
-  $ touch foo.ml
-  $ touch foo.mli
+  $ touch foo.ml foo.mli
 
   $ dune build ./bar.exe
   File "foo.ml-gen", line 1:

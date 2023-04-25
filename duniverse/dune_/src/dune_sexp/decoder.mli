@@ -187,7 +187,7 @@ val junk_everything : (unit, _) parser
 val plain_string : (loc:Loc.t -> string -> 'a) -> 'a t
 
 (** A valid filename, i.e. a string other than "." or ".." *)
-val filename : string t
+val filename : Filename.t t
 
 (** A relative filename *)
 val relative_file : string t
@@ -197,6 +197,8 @@ val fix : ('a t -> 'a t) -> 'a t
 val located : ('a, 'k) parser -> (Loc.t * 'a, 'k) parser
 
 val enum : (string * 'a) list -> 'a t
+
+val enum' : (string * 'a t) list -> 'a t
 
 (** Parser that parse a S-expression of the form
     [(<atom> <s-exp1> <s-exp2> ...)] or [<atom>]. [<atom>] is looked up in the

@@ -129,7 +129,7 @@ tbody tr:hover {
 
 let html = Printf.sprintf "<style>%s</style>%s" style table
 let () = Mime_printer.push "text/html" html
-]@
+][
 {%html: <style>
   table {
    border-spacing:1;
@@ -283,4 +283,5 @@ let () = Mime_printer.push "text/html" html
   <td class="column4">1</td><td class="column5">$999.00</td>
  </tr>
 </table>
- %}}
+ %}
+]}

@@ -1,4 +1,4 @@
-version: "0.2.0"
+version: "0.3.0"
 opam-version: "2.0"
 maintainer:   [ "romain.calascibetta@gmail.com" ]
 authors:      "Romain Calascibetta"
